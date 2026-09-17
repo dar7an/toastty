@@ -1026,8 +1026,12 @@ extension Ghostty {
                         }
                     }
                 } else {
-                    withAnimation(.easeOut(duration: 0.4)) {
+                    if reduceMotion {
                         borderPulse = false
+                    } else {
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            borderPulse = false
+                        }
                     }
                 }
             }
