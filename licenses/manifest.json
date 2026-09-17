@@ -1,0 +1,381 @@
+[
+  {
+    "component": "aro",
+    "pin": "aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX",
+    "source": "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz",
+    "file": "licenses/aro/LICENSE"
+  },
+  {
+    "component": "aro",
+    "pin": "aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX",
+    "source": "https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz",
+    "file": "licenses/aro/LICENSE-UNICODE"
+  },
+  {
+    "component": "breakpad",
+    "pin": "N-V-__8AADx3vAHtUVzBYz79RN-jSBg-7vqr82KRG2PDDj3O",
+    "source": "https://github.com/getsentry/breakpad/archive/25b6b727af49fa383161e7dba4a82ab0661b69b8.tar.gz",
+    "file": "licenses/breakpad/LICENSE"
+  },
+  {
+    "component": "freetype",
+    "pin": "N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
+    "source": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+    "file": "licenses/freetype/LICENSE.TXT"
+  },
+  {
+    "component": "freetype",
+    "pin": "N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
+    "source": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+    "file": "licenses/freetype/docs/FTL.TXT"
+  },
+  {
+    "component": "freetype",
+    "pin": "N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
+    "source": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+    "file": "licenses/freetype/docs/GPLv2.TXT"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/COPYING"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-runtime/COPYING"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-runtime/intl/COPYING.LIB"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-runtime/libasprintf/COPYING"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-runtime/libasprintf/COPYING.LIB"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/COPYING"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/tree-sitter-0.23.2/LICENSE"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/tree-sitter-d-0.8.2/LICENSE"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/tree-sitter-go-0.23.4/LICENSE"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/tree-sitter-rust-0.23.2/LICENSE"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/gettext-tools/tree-sitter-typescript-0.23.2/LICENSE"
+  },
+  {
+    "component": "gettext",
+    "pin": "N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "source": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "file": "licenses/gettext/libtextstyle/COPYING"
+  },
+  {
+    "component": "glslang",
+    "pin": "N-V-__8AAMmpvgL92dJGQdndHv_3KUj32P-C6QWT83-1-lEM",
+    "source": "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.6.0.tar.gz",
+    "file": "licenses/glslang/LICENSE.txt"
+  },
+  {
+    "component": "glslang",
+    "pin": "N-V-__8AAMmpvgL92dJGQdndHv_3KUj32P-C6QWT83-1-lEM",
+    "source": "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.6.0.tar.gz",
+    "file": "licenses/glslang/license-checker.cfg"
+  },
+  {
+    "component": "gtk4_layer_shell",
+    "pin": "N-V-__8AABZQBQCTF3bl5cdgQ9edw4SCFXPueCYtR6EL9IGu",
+    "source": "https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.3.0.tar.gz",
+    "file": "licenses/gtk4_layer_shell/LICENSE"
+  },
+  {
+    "component": "harfbuzz",
+    "pin": "N-V-__8AAAJ_FwYXbjMIdM8T_4Z402GcERnA3uFfjFDuQP4c",
+    "source": "https://github.com/harfbuzz/harfbuzz/releases/download/14.4.0/harfbuzz-14.4.0.tar.xz",
+    "file": "licenses/harfbuzz/COPYING"
+  },
+  {
+    "component": "harfbuzz",
+    "pin": "N-V-__8AAAJ_FwYXbjMIdM8T_4Z402GcERnA3uFfjFDuQP4c",
+    "source": "https://github.com/harfbuzz/harfbuzz/releases/download/14.4.0/harfbuzz-14.4.0.tar.xz",
+    "file": "licenses/harfbuzz/src/ms-use/COPYING"
+  },
+  {
+    "component": "harfbuzz",
+    "pin": "N-V-__8AAAJ_FwYXbjMIdM8T_4Z402GcERnA3uFfjFDuQP4c",
+    "source": "https://github.com/harfbuzz/harfbuzz/releases/download/14.4.0/harfbuzz-14.4.0.tar.xz",
+    "file": "licenses/harfbuzz/test/COPYING"
+  },
+  {
+    "component": "highway",
+    "pin": "N-V-__8AAD_MkACxo3rELIYCI7ap_7GsxHN1WH6AsMLDYp6L",
+    "source": "https://github.com/google/highway/archive/refs/tags/1.4.0.tar.gz",
+    "file": "licenses/highway/LICENSE"
+  },
+  {
+    "component": "highway",
+    "pin": "N-V-__8AAD_MkACxo3rELIYCI7ap_7GsxHN1WH6AsMLDYp6L",
+    "source": "https://github.com/google/highway/archive/refs/tags/1.4.0.tar.gz",
+    "file": "licenses/highway/debian/copyright"
+  },
+  {
+    "component": "imgui",
+    "pin": "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI",
+    "source": "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz",
+    "file": "licenses/imgui/LICENSE.txt"
+  },
+  {
+    "component": "jetbrains_mono",
+    "pin": "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+    "source": "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
+    "file": "licenses/jetbrains_mono/OFL.txt"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/LICENSE"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/ci/LICENSE_MIT.txt"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/contrib/gregbook/COPYING"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/contrib/gregbook/LICENSE"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/contrib/pngexif/LICENSE_MIT.txt"
+  },
+  {
+    "component": "libpng",
+    "pin": "N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "source": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "file": "licenses/libpng/contrib/pngminus/LICENSE.txt"
+  },
+  {
+    "component": "libxev",
+    "pin": "libxev-0.0.0-86vtcwIRFADbH4hk-EjROXxlrKIRPQdA41XiTSytYO-F",
+    "source": "https://deps.files.ghostty.org/libxev-9ce8e8e6ff89e583258a7f8e7adeeeaeae8611bf.tar.gz",
+    "file": "licenses/libxev/LICENSE"
+  },
+  {
+    "component": "libxml2",
+    "pin": "N-V-__8AAH30hwIndEJ9icgSaGo9HFSuUmIv1I6SlorjnfU-",
+    "source": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+    "file": "licenses/libxml2/Copyright"
+  },
+  {
+    "component": "libxml2",
+    "pin": "N-V-__8AAH30hwIndEJ9icgSaGo9HFSuUmIv1I6SlorjnfU-",
+    "source": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+    "file": "licenses/libxml2/result/html-tokenizer/NOTICE"
+  },
+  {
+    "component": "libxml2",
+    "pin": "N-V-__8AAH30hwIndEJ9icgSaGo9HFSuUmIv1I6SlorjnfU-",
+    "source": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+    "file": "licenses/libxml2/test/html-tokenizer/NOTICE"
+  },
+  {
+    "component": "nerd_fonts_symbols_only",
+    "pin": "N-V-__8AAMlwTwAhAtzTNEG7Eg4j7oI33o0_gzLbwDalYZEE",
+    "source": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFontsSymbolsOnly.tar.xz",
+    "file": "licenses/nerd_fonts_symbols_only/LICENSE"
+  },
+  {
+    "component": "oniguruma",
+    "pin": "N-V-__8AAPwCMwB54AUHwsvlixvQkvI1tZ5pRs35ZHfr5Evi",
+    "source": "https://github.com/kkos/oniguruma/archive/refs/tags/v6.9.10.tar.gz",
+    "file": "licenses/oniguruma/COPYING"
+  },
+  {
+    "component": "pixels",
+    "pin": "N-V-__8AADYiAAB_80AWnH1AxXC0tql9thT-R-DYO1gBqTLc",
+    "source": "https://deps.files.ghostty.org/pixels-12207ff340169c7d40c570b4b6a97db614fe47e0d83b5801a932dcd44917424c8806.tar.gz",
+    "file": "licenses/pixels/LICENSE"
+  },
+  {
+    "component": "sentry",
+    "pin": "N-V-__8AAKwoawA-G0w_56hQdIqb2ZLoaz064j7PZxgxJhvi",
+    "source": "https://github.com/getsentry/sentry-native/archive/refs/tags/0.16.6.tar.gz",
+    "file": "licenses/sentry/LICENSE"
+  },
+  {
+    "component": "sentry",
+    "pin": "N-V-__8AAKwoawA-G0w_56hQdIqb2ZLoaz064j7PZxgxJhvi",
+    "source": "https://github.com/getsentry/sentry-native/archive/refs/tags/0.16.6.tar.gz",
+    "file": "licenses/sentry/vendor/libunwind/COPYING"
+  },
+  {
+    "component": "spirv_cross",
+    "pin": "N-V-__8AAG7ovABenbEcMfcbxnQahv_qPno7CwSPITx-k6RD",
+    "source": "https://github.com/KhronosGroup/SPIRV-Cross/archive/refs/tags/vulkan-sdk-1.4.357.0.tar.gz",
+    "file": "licenses/spirv_cross/LICENSE"
+  },
+  {
+    "component": "spirv_cross",
+    "pin": "N-V-__8AAG7ovABenbEcMfcbxnQahv_qPno7CwSPITx-k6RD",
+    "source": "https://github.com/KhronosGroup/SPIRV-Cross/archive/refs/tags/vulkan-sdk-1.4.357.0.tar.gz",
+    "file": "licenses/spirv_cross/LICENSES/LicenseRef-KhronosFreeUse.txt"
+  },
+  {
+    "component": "translate_c",
+    "pin": "translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr",
+    "source": "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
+    "file": "licenses/translate_c/LICENSE"
+  },
+  {
+    "component": "uucode",
+    "pin": "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA",
+    "source": "https://deps.files.ghostty.org/uucode-2826a37a4562284fdacd8fa029d49509cc9bffcd.tar.gz",
+    "file": "licenses/uucode/LICENSE.md"
+  },
+  {
+    "component": "vaxis",
+    "pin": "vaxis-0.6.0-BWNV_CrbCQCscGpzsAlR402rYQ_tV3aAl081c2iRRkka",
+    "source": "https://deps.files.ghostty.org/vaxis-1dbbe575dff4586fe51e3217aa5c3fecdcbb6089.tar.gz",
+    "file": "licenses/vaxis/LICENSE"
+  },
+  {
+    "component": "wuffs",
+    "pin": "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+    "source": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "file": "licenses/wuffs/LICENSE"
+  },
+  {
+    "component": "wuffs",
+    "pin": "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+    "source": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "file": "licenses/wuffs/LICENSE-APACHE"
+  },
+  {
+    "component": "wuffs",
+    "pin": "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI",
+    "source": "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz",
+    "file": "licenses/wuffs/LICENSE-MIT"
+  },
+  {
+    "component": "zf",
+    "pin": "zf-0.11.0-OIRy8X-RAAAwaRXHMYpj2uvBnuGTZWEE_3V7acqHQNtW",
+    "source": "https://deps.files.ghostty.org/zf-c35c421f84895193246db06c40683c1a30e616ef.tar.gz",
+    "file": "licenses/zf/LICENSE"
+  },
+  {
+    "component": "zig_objc",
+    "pin": "zig_objc-0.0.0-Ir_Sp9gsAQCPAJc0oF5xoWePHWP6Y6tCphDeyNUThJoi",
+    "source": "https://deps.files.ghostty.org/zig_objc-c8de82ff80281215ad92900866dab7103a8efa8b.tar.gz",
+    "file": "licenses/zig_objc/LICENSE"
+  },
+  {
+    "component": "zigimg",
+    "pin": "zigimg-0.1.0-8_eo2oyaFwBZwJpmqPkCfVXWBrHcqbYwmrp1I6bTD3lI",
+    "source": "git+https://github.com/zigimg/zigimg#d695acd97c02e57bb151e8f659d1280f5cd6ca70",
+    "file": "licenses/zigimg/LICENSE"
+  },
+  {
+    "component": "zlib",
+    "pin": "N-V-__8AAJ2cNgAgfBtAw33Bxfu1IWISDeKKSr3DAqoAysIJ",
+    "source": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+    "file": "licenses/zlib/LICENSE"
+  },
+  {
+    "component": "zlib",
+    "pin": "N-V-__8AAJ2cNgAgfBtAw33Bxfu1IWISDeKKSr3DAqoAysIJ",
+    "source": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+    "file": "licenses/zlib/contrib/dotzlib/LICENSE_1_0.txt"
+  },
+  {
+    "component": "zlib",
+    "pin": "N-V-__8AAJ2cNgAgfBtAw33Bxfu1IWISDeKKSr3DAqoAysIJ",
+    "source": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+    "file": "licenses/zlib/contrib/minizip/LICENSE.Info-Zip"
+  },
+  {
+    "component": "Ghostty",
+    "file": "licenses/Ghostty/LICENSE"
+  },
+  {
+    "component": "NerdFonts",
+    "file": "licenses/NerdFonts/LICENSE"
+  },
+  {
+    "component": "Sparkle",
+    "file": "licenses/Sparkle/LICENSE"
+  },
+  {
+    "component": "z2d",
+    "source": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/LICENSE",
+    "file": "licenses/z2d/LICENSE"
+  },
+  {
+    "component": "z2d",
+    "source": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/COPYING",
+    "file": "licenses/z2d/COPYING"
+  },
+  {
+    "component": "iterm2_themes",
+    "source": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/752a9c0/LICENSE",
+    "file": "licenses/iterm2_themes/LICENSE"
+  },
+  {
+    "component": "iterm2_themes",
+    "source": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/752a9c0/CREDITS.md",
+    "file": "licenses/iterm2_themes/CREDITS.md"
+  },
+  {
+    "component": "bindings",
+    "source": "https://raw.githubusercontent.com/dearimgui/dear_bindings/v0.17/LICENSE.txt",
+    "file": "licenses/bindings/LICENSE.txt"
+  }
+]

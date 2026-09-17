@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) !void {
 
     var flags: std.ArrayList([]const u8) = .empty;
     defer flags.deinit(b.allocator);
+    try flags.append(b.allocator, "-DSENTRY_BACKEND_BREAKPAD");
 
     if (b.lazyDependency("breakpad", .{})) |upstream| {
         lib.root_module.addIncludePath(upstream.path("src"));

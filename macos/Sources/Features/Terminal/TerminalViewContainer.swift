@@ -39,12 +39,28 @@ class TerminalViewContainer: NSView {
     /// a valid intrinsic size, this fallback is no longer used.
     var initialContentSize: NSSize?
 
+    /// Extra content width outside the terminal. Resolve it when sizing so a
+    /// resized or disabled sidebar doesn't leave the fallback size stale.
+    var initialContentWidthInset: (() -> CGFloat)?
+    var initialContentHeightInset: (() -> CGFloat)?
+
     override var intrinsicContentSize: NSSize {
-        let hostingSize = terminalView.intrinsicContentSize
+        let hostingView = projectContentView ?? terminalView
+        var hostingSize = hostingView.intrinsicContentSize
+        // In project mode the terminal hosting view excludes the sidebar,
+        // which is a sibling split item: add the visible inset so the
+        // container size stays comparable to its frame (e.g. so Return to
+        // Default Size detects no change once applied).
+        if projectSplitViewController != nil {
+            hostingSize.width += initialContentWidthInset?() ?? 0
+        }
         // The hosting view returns a valid size once SwiftUI has laid out
         // with the correct idealWidth/idealHeight. Before that (when
         // @FocusedValue hasn't propagated), it returns a tiny default.
         // Fall back to initialContentSize in that case.
+        var initialContentSize = self.initialContentSize
+        initialContentSize?.width += initialContentWidthInset?() ?? 0
+        initialContentSize?.height += initialContentHeightInset?() ?? 0
         if let initialContentSize,
            hostingSize.width < initialContentSize.width || hostingSize.height < initialContentSize.height {
             return initialContentSize
@@ -63,6 +79,39 @@ class TerminalViewContainer: NSView {
         ])
     }
 
+    // MARK: - Project Split Hosting
+
+    /// The embedded project split controller, if this window uses the
+    /// project sidebar. `window.contentView` stays a TerminalViewContainer so
+    /// `BaseTerminalController.terminalViewContainer` lookups and the
+    /// window-level background glass keep working; the split controller's
+    /// view fills the container while the terminal hosting view is owned by
+    /// the split content item rather than the container directly.
+    private(set) var projectSplitViewController: ProjectSplitViewController?
+
+    /// The terminal hosting view inside the split content item, used for
+    /// intrinsic-size fallback once the container's own hosting view is
+    /// replaced by the split view.
+    private var projectContentView: NSView?
+
+    /// Embeds the project split controller, replacing the directly-hosted
+    /// terminal view. Call before assigning the container as
+    /// `window.contentView`.
+    func embedProjectSplitViewController(_ controller: ProjectSplitViewController) {
+        projectSplitViewController = controller
+        projectContentView = controller.contentViewForSizing
+        terminalView.removeFromSuperview()
+        let splitView = controller.view
+        addSubview(splitView)
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            splitView.topAnchor.constraint(equalTo: topAnchor),
+            splitView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateGlassEffectIfNeeded()
@@ -71,6 +120,7 @@ class TerminalViewContainer: NSView {
 
     override func layout() {
         super.layout()
+        projectSplitViewController?.applyInitialLayout()
         updateGlassEffectTopInsetIfNeeded()
     }
 

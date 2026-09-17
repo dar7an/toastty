@@ -114,10 +114,7 @@ private struct TerminalSplitLeaf: View {
                 }
             }
             .overlay {
-                if !isSelfDragging, case .dropping(let zone) = dropState {
-                    zone.overlay(in: geometry)
-                        .allowsHitTesting(false)
-                }
+                TerminalSplitDropPreview(zone: previewZone, size: geometry.size)
             }
             .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id
@@ -128,6 +125,11 @@ private struct TerminalSplitLeaf: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
         }
+    }
+
+    private var previewZone: TerminalSplitDropZone? {
+        guard !isSelfDragging, case .dropping(let zone) = dropState else { return nil }
+        return zone
     }
 
     private enum DropState: Equatable {
@@ -153,8 +155,8 @@ private struct TerminalSplitLeaf: View {
             // For some reason dropUpdated is sent after performDrop is called
             // and we don't want to reset our drop zone to show it so we have
             // to guard on the state here.
-            guard case .dropping = dropState else { return DropProposal(operation: .forbidden) }
-            dropState = .dropping(.calculate(at: info.location, in: viewSize))
+            guard case .dropping(let previous) = dropState else { return DropProposal(operation: .forbidden) }
+            dropState = .dropping(.calculate(at: info.location, in: viewSize, preferring: previous))
             return DropProposal(operation: .move)
         }
 
@@ -163,7 +165,8 @@ private struct TerminalSplitLeaf: View {
         }
 
         func performDrop(info: DropInfo) -> Bool {
-            let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize)
+            let previous: TerminalSplitDropZone? = if case .dropping(let zone) = dropState { zone } else { nil }
+            let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize, preferring: previous)
             dropState = .idle
 
             // Load the dropped surface asynchronously using Transferable
@@ -202,7 +205,13 @@ enum TerminalSplitDropZone: String, Equatable {
     /// Divides the view into four triangular regions by drawing diagonals from
     /// corner to corner. The drop zone is determined by which edge the cursor
     /// is closest to, creating natural triangular hit regions for each side.
-    static func calculate(at point: CGPoint, in size: CGSize) -> TerminalSplitDropZone {
+    static func calculate(
+        at point: CGPoint,
+        in size: CGSize,
+        preferring previous: TerminalSplitDropZone? = nil
+    ) -> TerminalSplitDropZone {
+        guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite,
+              point.x.isFinite, point.y.isFinite else { return previous ?? .left }
         let relX = point.x / size.width
         let relY = point.y / size.height
 
@@ -213,45 +222,66 @@ enum TerminalSplitDropZone: String, Equatable {
 
         let minDist = min(distToLeft, distToRight, distToTop, distToBottom)
 
+        // Keep the visible destination stable near a diagonal boundary. The
+        // same preference is used on release, so the preview and drop agree.
+        if let previous {
+            let previousDistance: CGFloat = switch previous {
+            case .left: distToLeft
+            case .right: distToRight
+            case .top: distToTop
+            case .bottom: distToBottom
+            }
+            let tolerance = min(0.04, 8 / min(size.width, size.height))
+            if previousDistance - minDist <= tolerance { return previous }
+        }
+
         if minDist == distToLeft { return .left }
         if minDist == distToRight { return .right }
         if minDist == distToTop { return .top }
         return .bottom
     }
 
-    @ViewBuilder
-    func overlay(in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
-
+    func previewFrame(in size: CGSize) -> CGRect {
         switch self {
         case .top:
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(overlayColor)
-                    .frame(height: geometry.size.height / 2)
-                Spacer()
-            }
+            CGRect(x: 0, y: 0, width: size.width, height: size.height / 2)
         case .bottom:
-            VStack(spacing: 0) {
-                Spacer()
-                Rectangle()
-                    .fill(overlayColor)
-                    .frame(height: geometry.size.height / 2)
-            }
+            CGRect(x: 0, y: size.height / 2, width: size.width, height: size.height / 2)
         case .left:
-            HStack(spacing: 0) {
-                Rectangle()
-                    .fill(overlayColor)
-                    .frame(width: geometry.size.width / 2)
-                Spacer()
-            }
+            CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)
         case .right:
-            HStack(spacing: 0) {
-                Spacer()
-                Rectangle()
-                    .fill(overlayColor)
-                    .frame(width: geometry.size.width / 2)
+            CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height)
+        }
+    }
+}
+
+private struct TerminalSplitDropPreview: View {
+    let zone: TerminalSplitDropZone?
+    let size: CGSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let zone {
+                let frame = zone.previewFrame(in: size).insetBy(dx: 5, dy: 5)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(reduceTransparency ? Color(nsColor: .controlBackgroundColor) : Color.accentColor.opacity(0.14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(contrast == .increased ? 1 : 0.65), lineWidth: 2)
+                    }
+                    .frame(width: max(0, frame.width), height: max(0, frame.height))
+                    .offset(x: frame.minX, y: frame.minY)
+                    .id(zone)
+                    .transition(.opacity)
             }
         }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        // Cross-fade only the preview; never animate terminal layout or input.
+        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.15), value: zone)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

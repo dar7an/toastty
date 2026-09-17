@@ -1,0 +1,33 @@
+Use case: logo-brand.
+Asset type: production macOS application icon for Toastty, an independent Ghostty fork.
+Primary request: a charming slice of golden toasted bread with a small pat of melting butter, in a polished dimensional terminal-app icon. Evoke the reference's friendly tactile retro-computer feeling, but create a distinct original Toastty mark, not a ghost and not a traced logo.
+Input image: reference only for broad quality, rounded macOS silhouette and depth.
+Composition: single square icon, front-facing rounded-square warm bronze/champagne metal bezel enclosing a deep espresso screen; one large centered, immediately recognizable rounded toast slice with warm cream crumb, caramel toasted center and crisp dark golden crust. Small pale yellow butter pat on the top-right of the toast, a restrained glossy melt. Subtle terminal prompt >_ cut into the toast face, legible at small size. Strong simple silhouette.
+Palette: butter yellow, honey gold, caramel, warm cream, espresso brown; no blue or purple.
+Style: high quality macOS app icon, softly rounded 3D edges, restrained glass highlights and tactile depth, clean readable at 32px. No tiny intricate pattern, no excessive bloom.
+Framing: square 1024x1024 image, centered rounded-square icon with about 7% transparent margin around its outer edge. Genuine transparent background outside the icon; no cast shadow extending to image edges.
+Text: only the terminal symbol >_; no app name, caption, watermark, or additional objects.
+
+Refinement:
+Use case: background-extraction. Clean up this Toastty app icon's transparent background only. Remove every stray white fleck, speck, stray pixel and detached artifact outside the continuous bronze rounded-square bezel, especially along the top border. Preserve the entire icon, toast, butter, terminal symbol, colors, proportions, and internal textures exactly. Center it on a square genuinely transparent canvas with a clean empty 7% margin all around. Outer contour must be smooth and anti-aliased with zero detached pixels. No checkerboard baked into the image.
+
+2026-09-16: Smaller toast in the upper-left (built-in imagegen)
+
+Use case: precise-object-edit.
+Asset type: Toastty macOS app icon, square transparent PNG.
+Input image 1 is the existing Toastty icon to edit. Input image 2 is Ghostty's original icon in a desktop screenshot, used ONLY as a reference for the small upper-left mascot composition.
+Primary request: make the existing buttered toast small and move it to the upper-left INSIDE the dark terminal screen, just as Ghostty's small ghost sits in the upper-left of its screen.
+Composition: the entire toast including butter should occupy about 35% of the inner screen's width and 40% of its height. Place it with a comfortable inset from the inner screen's top and left edges. Leave the majority of the screen empty, especially to the right and below. The toast should remain wholly within the screen.
+Keep the Toastty rounded-square computer bezel, its proportions, bronze/champagne material and lighting, dark espresso screen, toasted-bread colors, recognizable toast shape, small butter pat and terminal >_ mark. Change only toast scale/placement and reveal the matching empty dark screen behind its former position. Keep the warm palette; do not copy Ghostty's blue color.
+Retain genuine transparent alpha outside the bezel, clean smooth edges, square canvas and current framing. No background, label, caption, watermark, additional characters or new decorative elements.
+
+Outer-edge cleanup
+
+Use case: background-extraction / precise-object-edit. Edit the provided Toastty macOS app icon. Preserve the current small buttered toast in the upper-left of the espresso screen, the exact subject scale, placement, terminal >_ mark, butter, warm bronze rounded bezel, framing and lighting. Perform ONLY a precise outer-edge cleanup: remove every stray red, yellow and white speck, fringe and isolated pixel outside the rounded bezel. The entire area outside the smooth bezel silhouette must be genuinely transparent alpha, including corners, with no colored fringe. Preserve smooth antialiasing at the silhouette. Keep the icon interior unchanged. No text, new objects or additional effects.
+
+
+2026-09-17 CRT refinement (built-in imagegen)
+Edit the first reference image (Toastty app icon) using the second reference only as a guide to the old-school CRT monitor construction and composition. Keep Toastty's small slice of golden toast with a little butter and >_ terminal face in the UPPER LEFT of the screen; it occupies about 30 percent of the screen width, leaving most of the screen empty. Restore an unmistakable retro CRT monitor: a thick rounded-square warm bronze outer case, a distinctly recessed dark charcoal inner bezel/gasket, a convex glass screen with a fine regular amber phosphor-dot grid and subtle scanlines across the ENTIRE screen including toast, softly glowing amber pixels, curved glass reflection at top, dimensional layered construction. The toast should look like a luminous amber toast sprite displayed INSIDE the CRT, not a physical bread object pasted on the screen. Palette toasted bread: dark espresso, caramel, warm amber, butter gold. No blue, no ghost, no text other than the >_ face. Refined macOS icon, clean readable small sizes, restrained reflections, not a bright gold jewelry frame. Center the monitor outer case with about 9-10 percent transparent padding on EACH side, same square canvas and icon proportions as the second reference. Truly transparent RGBA background outside the silhouette, no background checkerboard, no shadows detached from the icon, no stray colored pixels. Single square icon.
+
+Cleanup refinement (built-in imagegen)
+Clean up the attached Toastty icon ONLY. Preserve the exact monitor geometry, layered bronze and charcoal bezel, convex amber CRT phosphor screen, tiny glowing toast with butter and >_ at upper left, positions, colors, texture and reflections. Remove all detached red/yellow stray pixels above and around the monitor. Everything outside the rounded monitor silhouette must be perfectly clean actual transparent alpha, with smoothly antialiased edges. Do not change the design or enlarge it. Keep same square canvas, no background, no cast shadow.

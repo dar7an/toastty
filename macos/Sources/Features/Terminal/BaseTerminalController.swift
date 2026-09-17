@@ -41,7 +41,7 @@ class BaseTerminalController: NSWindowController,
     let ghostty: Ghostty.App
 
     /// The currently focused surface.
-    var focusedSurface: Ghostty.SurfaceView? {
+    @Published var focusedSurface: Ghostty.SurfaceView? {
         didSet { syncFocusToSurfaceTree() }
     }
 
@@ -1736,6 +1736,6 @@ extension BaseTerminalController {
 
 extension Notification.Name {
     /// Terminal window aggregate bell state changed.
-    static let terminalWindowBellDidChangeNotification = Notification.Name("com.mitchellh.ghostty.terminalWindowBellDidChange")
+    static let terminalWindowBellDidChangeNotification = Notification.Name("com.dar7an.toastty.terminalWindowBellDidChange")
     static let terminalWindowHasBellKey = terminalWindowBellDidChangeNotification.rawValue + ".hasBell"
 }

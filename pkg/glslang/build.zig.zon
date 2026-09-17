@@ -1,13 +1,13 @@
 .{
     .name = .glslang,
-    .version = "14.2.0",
+    .version = "16.6.0",
     .fingerprint = 0x274a35558e2e504,
     .paths = .{""},
     .dependencies = .{
         // KhronosGroup/glslang
         .glslang = .{
-            .url = "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
-            .hash = "N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy",
+            .url = "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.6.0.tar.gz",
+            .hash = "N-V-__8AAMmpvgL92dJGQdndHv_3KUj32P-C6QWT83-1-lEM",
             .lazy = true,
         },
 

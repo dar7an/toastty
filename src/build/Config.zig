@@ -30,7 +30,7 @@ font_backend: FontBackend = .freetype,
 /// Feature flags
 x11: bool = false,
 wayland: bool = false,
-sentry: bool = true,
+sentry: bool = false,
 simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
@@ -224,16 +224,8 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     config.sentry = b.option(
         bool,
         "sentry",
-        "Build with Sentry crash reporting. Default for macOS is true, false for any other system.",
-    ) orelse sentry: {
-        switch (target.result.os.tag) {
-            .macos, .ios => break :sentry true,
-
-            // Note its false for linux because the crash reports on Linux
-            // don't have much useful information.
-            else => break :sentry false,
-        }
-    };
+        "Build with Sentry crash reporting. Disabled by default in Toastty.",
+    ) orelse false;
 
     config.simd = b.option(
         bool,

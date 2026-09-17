@@ -54,7 +54,7 @@ extern "C" {
 #endif
 
 /* Version number: (major<<16) + (minor<<8) + subminor */
-#define LIBINTL_VERSION 0x001800
+#define LIBINTL_VERSION 0x001A00
 extern int libintl_version;
 
 /* We redirect the functions to those prefixed with "libintl_".  This is

@@ -893,7 +893,7 @@
 #define PACKAGE_NAME "libintl"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "libintl 0.24"
+#define PACKAGE_STRING "libintl 0.26"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "libintl"
@@ -902,7 +902,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.24"
+#define PACKAGE_VERSION "0.26"
 
 /* Define if the pthread_in_use() detection is hard. */
 /* #undef PTHREAD_IN_USE_DETECTION_HARD */
@@ -1066,7 +1066,7 @@
 /* #undef USE_WINDOWS_THREADS */
 
 /* Version number of package */
-#define VERSION "0.24"
+#define VERSION "0.26"
 
 /* Define to l, ll, u, ul, ull, etc., as suitable for constants of type
    'wchar_t'. */

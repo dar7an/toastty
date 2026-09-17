@@ -37,6 +37,65 @@ struct TerminalRestorableTests {
         #expect(state.surfaceTree.contains(where: { $0.id.uuidString == "994C673F-B4C5-49EE-B044-65006652636D" }))
     }
 
+    @MainActor
+    @Test func projectIdentityAndSelectionSurviveEncoding() throws {
+        let tabID = UUID()
+        var project = TerminalProject(name: "Named workspace")
+        project.selectedTabID = tabID
+        let tree = try SplitTreeTests.makeHorizontalSplit().0
+        let state = TerminalRestorableState.InternalState(
+            focusedSurface: "selected", surfaceTree: tree,
+            effectiveFullscreenMode: nil, tabColor: .blue, titleOverride: "server",
+            project: project, projectTabID: tabID)
+        let encoded = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(TerminalRestorableState.InternalState<MockView>.self, from: encoded)
+        #expect(decoded.project == project)
+        #expect(decoded.projectTabID == tabID)
+        #expect(decoded.surfaceTree.count == tree.count)
+    }
+
+    @MainActor
+    @Test func legacyProjectNameDecodesAsOverride() throws {
+        let json = #"{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","name":"Old Name"}"#
+        let decoded = try JSONDecoder().decode(TerminalProject.self, from: Data(json.utf8))
+        #expect(decoded.directory == nil)
+        #expect(decoded.nameOverride == "Old Name")
+        #expect(decoded.displayName == "Old Name")
+        #expect(decoded.automaticName == "Terminal")
+    }
+
+    @MainActor
+    @Test func projectRoundTripDistinguishesAutoFromOverridden() throws {
+        let auto = TerminalProject(directory: "/tmp/work")
+        let overridden = TerminalProject(directory: "/tmp/work", nameOverride: "work")
+        #expect(auto.displayName == overridden.displayName)
+        #expect(auto != overridden)
+
+        let autoDecoded = try JSONDecoder().decode(TerminalProject.self, from: try JSONEncoder().encode(auto))
+        let overriddenDecoded = try JSONDecoder().decode(
+            TerminalProject.self, from: try JSONEncoder().encode(overridden))
+        #expect(autoDecoded == auto)
+        #expect(overriddenDecoded == overridden)
+        #expect(autoDecoded.nameOverride == nil)
+        #expect(overriddenDecoded.nameOverride == "work")
+
+        // The resolved legacy `name` stays encoded, with an explicit null
+        // override for derived names.
+        let raw = String(data: try JSONEncoder().encode(auto), encoding: .utf8) ?? ""
+        #expect(raw.contains(#""name":"work""#))
+        #expect(raw.contains(#""nameOverride":null"#))
+    }
+
+    @MainActor
+    @Test func projectsSharingDirectoryStayDistinct() {
+        let first = TerminalProject(directory: "/tmp/shared")
+        let second = TerminalProject(directory: "/tmp/shared")
+        #expect(first.id != second.id)
+        #expect(first != second)
+        #expect(first.displayName == second.displayName)
+        #expect(first.withSelectedTab(second.id).selectedTabID == second.id)
+    }
+
     // To generate old data: created a dummy class, archive, and copy the printed result
     @MainActor
     @Test func restoreTerminal57() throws {
@@ -81,6 +140,8 @@ struct TerminalRestorableTests {
         #expect(v7.effectiveFullscreenMode == .native)
         #expect(v7.tabColor == .green)
         #expect(v7.titleOverride == "1.3.0")
+        #expect(v7.project == nil)
+        #expect(v7.projectTabID == nil)
         #expect(v7.surfaceTree.contains(where: { $0.id.uuidString == "5D580A7A-81EA-47C6-BB9A-AD4B1783E478" }))
         #expect(v7.surfaceTree.contains(where: { $0.id.uuidString == "96EA1189-7482-41BC-A6CD-26E5190E4BFA" }))
 

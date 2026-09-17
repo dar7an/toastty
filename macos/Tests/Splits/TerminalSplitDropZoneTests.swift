@@ -7,6 +7,20 @@ struct TerminalSplitDropZoneTests {
 
     // MARK: - Basic Edge Detection
 
+    @Test func previewRemainsStableAtBoundaryUntilPointerMovesAway() {
+        let size = CGSize(width: 800, height: 600)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 400, y: 299), in: size, preferring: .left) == .left)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 400, y: 280), in: size, preferring: .left) == .top)
+    }
+
+    @Test func previewMatchesDestinationHalf() {
+        let size = CGSize(width: 800, height: 600)
+        #expect(TerminalSplitDropZone.left.previewFrame(in: size) == CGRect(x: 0, y: 0, width: 400, height: 600))
+        #expect(TerminalSplitDropZone.right.previewFrame(in: size) == CGRect(x: 400, y: 0, width: 400, height: 600))
+        #expect(TerminalSplitDropZone.top.previewFrame(in: size) == CGRect(x: 0, y: 0, width: 800, height: 300))
+        #expect(TerminalSplitDropZone.bottom.previewFrame(in: size) == CGRect(x: 0, y: 300, width: 800, height: 300))
+    }
+
     @Test func topEdge() {
         let zone = TerminalSplitDropZone.calculate(at: CGPoint(x: 50, y: 5), in: standardSize)
         #expect(zone == .top)

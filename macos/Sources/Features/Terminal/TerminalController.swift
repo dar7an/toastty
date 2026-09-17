@@ -18,6 +18,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return defaultValue
         }
 
+        if usesProjectSidebar { return defaultValue }
+
         let nib = switch config.macosTitlebarStyle {
         case .native: "Terminal"
         case .hidden: "TerminalHiddenTitlebar"
@@ -35,6 +37,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         return nib
+    }
+
+    /// A project owns its terminal tabs independently of AppKit's window transport.
+    /// A fresh project starts without directory identity ("Terminal") until it
+    /// is seeded from the initial surface configuration or shell.
+    var project = TerminalProject() {
+        didSet { if isWindowLoaded { window?.invalidateRestorableState() } }
+    }
+    var projectTabID = UUID()
+
+    /// Window chrome is fixed at creation; new tabs inherit their parent's layout.
+    let usesProjectSidebar: Bool
+    var projectNeedsMigration = false
+
+    /// This window's view of the shared group sidebar state. Set at init
+    /// (before super.init, like the other project metadata) from the parent
+    /// group, restoration, or undo; refreshed from the group model in
+    /// windowDidLoad and mirrored on every group change. Read for undo and
+    /// restorable-state encoding.
+    var sidebarState: SidebarState? {
+        didSet {
+            if sidebarState != oldValue, isWindowLoaded { window?.invalidateRestorableState() }
+        }
+    }
+
+    var projectTabWindows: [NSWindow] {
+        guard let window else { return [] }
+        let windows = window.tabGroup?.windows ?? [window]
+        guard usesProjectSidebar else { return windows }
+        return windows.filter { ($0.windowController as? TerminalController)?.project.id == project.id }
     }
 
     /// This is set to true when we care about frame changes. This is a small optimization since
@@ -61,10 +93,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// One-time project directory seeding from the shell-reported working
+    /// directory (see seedProjectDirectoryIfNeeded).
+    private var projectDirectoryCancellable: AnyCancellable?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
-         parent: NSWindow? = nil
+         parent: NSWindow? = nil,
+         project: TerminalProject? = nil,
+         projectTabID: UUID? = nil,
+         usesProjectSidebar: Bool? = nil,
+         sidebarState: SidebarState? = nil
     ) {
         // The window we manage is not restorable if we've specified a command
         // to execute. We do this because the restored window is meaningless at the
@@ -75,8 +115,34 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
+        self.usesProjectSidebar = usesProjectSidebar
+            ?? (ghostty.config.macosTabsSidebar && ghostty.config.macosTitlebarStyle != .hidden)
+        if let project { self.project = project }
+        if let projectTabID { self.projectTabID = projectTabID }
+        if let sidebarState { self.sidebarState = sidebarState }
+
+        // A fresh project remembers the directory it was created from so the
+        // sidebar can name it. Explicitly passed projects keep their identity.
+        if self.project.directory == nil, self.project.nameOverride == nil,
+           let workingDirectory = base?.workingDirectory, !workingDirectory.isEmpty {
+            self.project.directory = workingDirectory
+        }
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
+
+        // The shell reports its working directory asynchronously; remember it
+        // once as a fresh project's identity so the sidebar can name it.
+        // This mirrors the sidebar model's focused-surface observation.
+        projectDirectoryCancellable = $focusedSurface
+            .map { surface -> AnyPublisher<String?, Never> in
+                guard let surface else {
+                    return Just<String?>(nil).eraseToAnyPublisher()
+                }
+                return surface.$pwd.eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.seedProjectDirectoryIfNeeded() }
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -369,7 +435,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             if let window = c.window {
                 // If we have a tree size, resize the window's content to match
                 if let treeSize, treeSize.width > 0, treeSize.height > 0 {
-                    window.setContentSize(treeSize)
+                    // An expanded sidebar consumes content width, so its
+                    // width and toolbar inset preserve the surface's size.
+                    var contentSize = treeSize
+                    contentSize.width += Self.tabSidebarInset(ghostty, window: window)
+                    if c.usesProjectSidebar { contentSize.height += Self.projectToolbarInset(window) }
+                    window.setContentSize(contentSize)
                     window.constrainToScreen()
                 }
 
@@ -419,7 +490,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
-        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        inProject project: TerminalProject? = nil
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
         // then we just create a new window.
@@ -441,8 +513,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return nil
         }
 
-        // Create a new window and add it to the parent
-        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        // Create a new window and add it to the parent. New tabs inherit the
+        // parent group's sidebar state before window loading.
+        let controller = TerminalController(
+            ghostty, withBaseConfig: baseConfig,
+            project: project ?? parentController.project,
+            usesProjectSidebar: parentController.usesProjectSidebar,
+            sidebarState: parent.tabGroup?.tabSidebarModel.sidebarState
+                ?? parentController.sidebarState)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         guard let window = controller.window else { return controller }
 
@@ -470,7 +548,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case "end":
                 // If we already have a tab group and we want the new tab to open at the end,
                 // then we use the last window in the tab group as the parent.
-                if let last = parent.tabGroup?.windows.last {
+                if let last = parentController.projectTabWindows.last {
                     tabCreated = last.addTabbedWindowSafely(window, ordered: .above)
                 } else {
                     fallthrough
@@ -524,6 +602,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Setup our undo
+        let createdProject = controller.project
         if let undoManager = parentController.undoManager {
             undoManager.setActionName("New Tab")
             undoManager.registerUndo(
@@ -543,7 +622,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newTab(
                         ghostty,
                         from: parent,
-                        withBaseConfig: baseConfig)
+                        withBaseConfig: baseConfig,
+                        inProject: createdProject)
                 }
             }
         }
@@ -587,7 +667,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // otherwise the accessory view doesn't matter.
         tabListenForFrame = window?.tabbedWindows?.count ?? 0 > 1
 
-        if let windows = window?.tabbedWindows as? [TerminalWindow] {
+        if let windows = projectTabWindows as? [TerminalWindow] {
             for (tab, window) in zip(1..., windows) {
                 // We need to clear any windows beyond this because they have had
                 // a keyEquivalent set previously.
@@ -741,13 +821,20 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
         }
 
+        // AppKit only sees a flat group. Choose a neighbor in this project first.
+        if usesProjectSidebar, tabGroup.selectedWindow == window {
+            let tabs = projectTabWindows
+            if let index = tabs.firstIndex(of: window), tabs.count > 1 {
+                let next = tabs[index == tabs.count - 1 ? index - 1 : index + 1]
+                tabGroup.selectedWindow = next
+            }
+        }
         window.close()
     }
 
     private func closeOtherTabsImmediately() {
-        guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard tabGroup.windows.count > 1 else { return }
+        let tabs = projectTabWindows
+        guard tabs.count > 1 else { return }
 
         // Start an undo grouping
         if let undoManager {
@@ -758,7 +845,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Iterate through all tabs except the current one.
-        for window in tabGroup.windows where window != self.window {
+        for window in tabs where window != self.window {
             // We ignore any non-terminal tabs. They don't currently exist and we can't
             // properly undo them anyways so I'd rather ignore them and get a bug report
             // later if and when we introduce non-terminal tabs.
@@ -795,10 +882,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func closeTabsOnTheRightImmediately() {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let tabs = projectTabWindows
+        guard let currentIndex = tabs.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = tabs.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         undoManager?.beginUndoGrouping()
@@ -1017,14 +1104,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
         let tabColor: TerminalTabColor
+        let titleOverride: String?
+        var project: TerminalProject?
+        var projectTabID: UUID?
+        var usesProjectSidebar: Bool?
+        var sidebarState: SidebarState?
     }
 
     convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
-        self.init(ghostty, withSurfaceTree: undoState.surfaceTree)
+        self.init(ghostty, withSurfaceTree: undoState.surfaceTree,
+                  project: undoState.project, projectTabID: undoState.projectTabID,
+                  usesProjectSidebar: undoState.usesProjectSidebar,
+                  sidebarState: undoState.sidebarState)
 
         // Show the window and restore its frame
         showWindow(nil)
         if let window {
+            titleOverride = undoState.titleOverride
             window.setFrame(undoState.frame, display: true)
             if let terminalWindow = window as? TerminalWindow {
                 terminalWindow.tabColor = undoState.tabColor
@@ -1072,7 +1168,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
             tabGroup: window.tabGroup,
-            tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
+            tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
+            titleOverride: titleOverride,
+            project: project,
+            projectTabID: projectTabID,
+            usesProjectSidebar: usesProjectSidebar,
+            sidebarState: sidebarState ?? window.tabGroup?.tabSidebarModel.sidebarState)
     }
 
     // MARK: - NSWindowController
@@ -1107,18 +1208,63 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
+        // Seed a fresh project's directory from the initial terminal now that
+        // the first surface exists; later shell updates arrive via observation.
+        seedProjectDirectoryIfNeeded()
+
         // Initialize our content view to the SwiftUI root
-        let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+        let container: TerminalViewContainer
+        if usesProjectSidebar {
+            // Sidebar/toolbar composition lives outside the terminal SwiftUI
+            // focus tree: the container stays the window content view (so
+            // controller lookups and background glass keep working) while the
+            // split controller owns layout and the toolbar owns the tab strip.
+            container = TerminalViewContainer { EmptyView() }
+            let split = ProjectSplitViewController(
+                controller: self,
+                content: AnyView(TerminalView(ghostty: ghostty, viewModel: self, delegate: self)))
+            if let groupModel = window.tabGroup?.tabSidebarModel {
+                if let pending = sidebarState {
+                    // Inherited (new tab), restored, or undone state wins.
+                    groupModel.sidebarState = pending
+                }
+                sidebarState = groupModel.sidebarState
+                split.bind(to: groupModel, animated: false)
+            }
+            container.embedProjectSplitViewController(split)
+            split.beginObservingTabGroup()
+        } else {
+            container = TerminalViewContainer {
+                TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            }
         }
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain.
+        // SwiftUI focus chain. An expanded sidebar consumes content width,
+        // so its width is included to preserve the configured terminal size;
+        // a collapsed sidebar contributes zero. The toolbar occupies the top
+        // of the full-size content view, outside the terminal's safe area.
         container.initialContentSize = focusedSurface?.initialSize
+        container.initialContentWidthInset = { [weak self, weak window] in
+            guard let self else { return 0 }
+            return Self.tabSidebarInset(self.ghostty, window: window)
+        }
+
+        container.initialContentHeightInset = { [weak self, weak window] in
+            guard self?.usesProjectSidebar == true, let window else { return 0 }
+            return Self.projectToolbarInset(window)
+        }
 
         window.contentView = container
+
+        // The toolbar must be installed after the split view is attached so
+        // the tracking separator can bind to the sidebar divider.
+        if usesProjectSidebar {
+            (window as? TerminalWindow)?.configureProjectChrome(
+                splitController: container.projectSplitViewController)
+        }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1129,6 +1275,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
                     window.setFrameOrigin(frame.origin)
                 }
+            }
+        } else {
+            // With no configured size the window keeps its default (xib)
+            // content size. An expanded sidebar consumes content width, so
+            // grow the content to preserve the default terminal size. A
+            // collapsed sidebar (inset 0) needs no adjustment.
+            let inset = Self.tabSidebarInset(ghostty, window: window)
+            if usesProjectSidebar {
+                var size = window.contentRect(forFrameRect: window.frame).size
+                size.width += inset
+                size.height += Self.projectToolbarInset(window)
+                window.setContentSize(size)
             }
         }
 
@@ -1316,6 +1474,146 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.newTab(surface: surface)
     }
 
+    /// Whether a shell-reported path is usable as project identity. Rejects
+    /// empty or relative paths and locations inside our own app bundle, which
+    /// reflect process launch state rather than the user's terminal directory.
+    static func isPlausibleProjectDirectory(_ path: String?) -> Bool {
+        guard let path, !path.isEmpty, path.hasPrefix("/") else { return false }
+        let bundlePath = Bundle.main.bundlePath
+        if !bundlePath.isEmpty, path == bundlePath || path.hasPrefix(bundlePath + "/") {
+            return false
+        }
+        return true
+    }
+
+    /// Remember a fresh project's directory once from its shell, without
+    /// overwriting an established identity or a renamed project. Later `cd`s
+    /// never change the stored directory; it is identity, not live state.
+    private func seedProjectDirectoryIfNeeded() {
+        guard project.directory == nil, project.nameOverride == nil else { return }
+        guard let pwd = focusedSurface?.pwd, Self.isPlausibleProjectDirectory(pwd) else { return }
+        project.directory = pwd
+        window?.tabGroup?.tabSidebarModel.refresh()
+    }
+
+    /// Create a new project seeded from the active terminal's directory.
+    ///
+    /// The project directory is identity, not inheritance: the new project's
+    /// first tab starts in it, while later tabs keep the existing
+    /// working-directory inheritance. Projects may share directories; they
+    /// are separated by UUID.
+    @objc func newProject(_ sender: Any?) {
+        guard let window else { return }
+
+        // Reuse the inherited surface configuration (font, environment, …)
+        // so the first tab matches a normal new tab. Built immediately so
+        // any C-backed strings are copied out before use.
+        var inherited: Ghostty.SurfaceConfiguration?
+        if let surface = focusedSurface?.surface {
+            inherited = Ghostty.SurfaceConfiguration(
+                from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB))
+        }
+
+        // Identity fallback chain: live directory, inherited config, current
+        // project, then home.
+        let directory: String
+        if let pwd = focusedSurface?.pwd, !pwd.isEmpty {
+            directory = pwd
+        } else if let workingDirectory = inherited?.workingDirectory, !workingDirectory.isEmpty {
+            directory = workingDirectory
+        } else if let current = project.directory, !current.isEmpty {
+            directory = current
+        } else {
+            directory = NSHomeDirectory()
+        }
+
+        var baseConfig = inherited ?? Ghostty.SurfaceConfiguration()
+        baseConfig.workingDirectory = directory
+        _ = Self.newTab(
+            self.ghostty, from: window,
+            withBaseConfig: baseConfig,
+            inProject: TerminalProject(directory: directory))
+    }
+
+    /// Prompt for a project rename. Creation is owned by `newProject`
+    /// (directory identity, no prompt); this shim keeps the underspecified
+    /// call working for other workstreams.
+    func promptProjectName(rename: Bool = false) {
+        guard let window else { return }
+        if rename, usesProjectSidebar, window.tabGroup != nil {
+            window.tabGroup?.tabSidebarModel.selectProject(project.id)
+            window.tabGroup?.tabSidebarModel.beginRename(projectID: project.id)
+            return
+        }
+        if !rename {
+            newProject(nil)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Rename Project"
+        alert.informativeText = "Each project keeps its own tabs."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "Project name"
+        field.stringValue = projectDisplayName(project)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let nameObserver = NotificationCenter.default.addObserver(
+            forName: NSTextField.textDidChangeNotification, object: field, queue: .main
+        ) { _ in
+            alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            NotificationCenter.default.removeObserver(nameObserver)
+            guard let self, response == .alertFirstButtonReturn else { return }
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            for tab in self.projectTabWindows {
+                guard let controller = tab.windowController as? TerminalController else { continue }
+                controller.project.nameOverride = (name == controller.project.automaticName) ? nil : name
+            }
+            window.tabGroup?.tabSidebarModel.refresh()
+        }
+    }
+
+    func closeProject() {
+        let controllers = projectTabWindows.compactMap { $0.windowController as? TerminalController }
+        let projectID = project.id
+        let selectedTabID = project.selectedTabID ?? projectTabID
+        let close = {
+            self.undoManager?.beginUndoGrouping()
+            // Register first so this runs after all tabs have been restored.
+            self.undoManager?.registerUndo(withTarget: self.ghostty, expiresAfter: self.undoExpiration) { _ in
+                DispatchQueue.main.async {
+                    Self.all.first(where: { $0.project.id == projectID && $0.projectTabID == selectedTabID })?
+                        .window?.makeKeyAndOrderFront(nil)
+                }
+            }
+            controllers.forEach { $0.closeTabImmediately() }
+            self.undoManager?.setActionName("Close Project")
+            self.undoManager?.endUndoGrouping()
+        }
+        if controllers.contains(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }) {
+            confirmClose(messageText: "Close Project?",
+                         informativeText: "Running processes in this project's tabs will be stopped.",
+                         completion: close)
+        } else {
+            close()
+        }
+    }
+
+    /// Toggles the project sidebar with the native collapse animation. The
+    /// flip goes through the shared group model, so every window in the
+    /// group follows; the split controller observes the model and animates
+    /// (skipped under Reduce Motion). Also wired to View > Show/Hide Sidebar.
+    @IBAction func toggleProjectSidebar(_ sender: Any?) {
+        guard usesProjectSidebar, let window, let tabGroup = window.tabGroup else { return }
+        let model = tabGroup.tabSidebarModel
+        model.setVisible(!model.sidebarState.isVisible)
+    }
+
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
@@ -1337,14 +1635,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func closeOtherTabs(_ sender: Any?) {
-        guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
+        let tabs = projectTabWindows
 
         // If we only have one window then we have no other tabs to close
-        guard tabGroup.windows.count > 1 else { return }
+        guard tabs.count > 1 else { return }
 
         // Check if we have to confirm close.
-        guard tabGroup.windows.contains(where: { window in
+        guard tabs.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
 
@@ -1370,10 +1667,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func closeTabsOnTheRight(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let tabs = projectTabWindows
+        guard let currentIndex = tabs.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = tabs.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         let needsConfirm = tabsToClose.contains { (_, candidate) in
@@ -1520,10 +1817,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard action.amount != 0 else { return }
 
         // Determine our current selected index
-        guard let windowController = window.windowController else { return }
+        guard let windowController = window.windowController as? TerminalController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
         guard let selectedWindow = tabGroup.selectedWindow else { return }
-        let tabbedWindows = tabGroup.windows
+        let tabbedWindows = windowController.projectTabWindows
         guard tabbedWindows.count > 0 else { return }
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
@@ -1583,9 +1880,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
         let tabIndex: Int32 = tabEnum.rawValue
 
-        guard let windowController = window.windowController else { return }
+        guard let windowController = window.windowController as? TerminalController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
-        let tabbedWindows = tabGroup.windows
+        let tabbedWindows = windowController.projectTabWindows
 
         // This will be the index we want to actual go to
         let finalIndex: Int
@@ -1705,10 +2002,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(newProject):
+            return usesProjectSidebar
+
+        case #selector(toggleProjectSidebar):
+            guard usesProjectSidebar else { return false }
+            if let visible = window?.tabGroup?.tabSidebarModel.sidebarState.isVisible {
+                item.title = visible ? "Hide Sidebar" : "Show Sidebar"
+            } else {
+                item.title = "Hide Sidebar"
+            }
+            return true
+
         case #selector(closeTabsOnTheRight):
-            guard let window, let tabGroup = window.tabGroup else { return false }
-            guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
-            return tabGroup.windows.indices.contains { $0 > currentIndex }
+            guard let window, let currentIndex = projectTabWindows.firstIndex(of: window) else { return false }
+            return projectTabWindows.indices.contains { $0 > currentIndex }
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }
@@ -1774,11 +2082,34 @@ extension TerminalController {
         }
     }
 
+    /// The content width consumed by the tab sidebar when it is enabled and
+    /// expanded. A collapsed sidebar consumes no content width.
+    private static func tabSidebarInset(_ ghostty: Ghostty.App, window: NSWindow?) -> CGFloat {
+        let enabled = (window?.windowController as? TerminalController)?.usesProjectSidebar
+            ?? (ghostty.config.macosTabsSidebar && ghostty.config.macosTitlebarStyle != .hidden)
+        guard enabled else { return 0 }
+
+        // Accessing `window.tabGroup` materializes the window's tab group,
+        // which the sidebar requires anyway when it is enabled.
+        guard let model = window?.tabGroup?.tabSidebarModel else {
+            return TabSidebarModel.defaultWidth
+        }
+        guard model.sidebarState.isVisible else { return 0 }
+        return model.sidebarState.expandedWidth
+    }
+
+    /// Space inside a full-size content view that the native toolbar reserves.
+    static func projectToolbarInset(_ window: NSWindow) -> CGFloat {
+        max(0, (window.contentView?.bounds.height ?? 0) - window.contentLayoutRect.height)
+    }
+
     private var defaultSize: DefaultSize? {
         if derivedConfig.maximize, let screen = window?.screen ?? NSScreen.main {
             // Maximize takes priority, we take up the full screen we're on.
             return .frame(screen.visibleFrame)
-        } else if focusedSurface?.initialSize != nil {
+        } else if focusedSurface?.initialSize != nil ||
+                    (usesProjectSidebar && isWindowLoaded &&
+                     (window?.contentView as? TerminalViewContainer)?.initialContentSize != nil) {
             // Initial size as requested by the configuration (e.g. `window-width`)
             // takes next priority.
             return .contentIntrinsicSize

@@ -88,7 +88,8 @@ enum AppIcon: Equatable, Codable, Sendable {
 #if !DOCK_TILE_PLUGIN
 /// Making sure that `NSWorkspace.shared.setIcon` executes on only one thread at a time
 actor AppIconUpdater {
-    func update(icon: AppIcon?) {
+    func update(icon: AppIcon?) async {
+        let previousIcon = UserDefaults.ghostty.appIcon
         UserDefaults.ghostty.appIcon = icon
         // Notify DockTilePlugin to update dock icon
         DistributedNotificationCenter.default()
@@ -99,11 +100,21 @@ actor AppIconUpdater {
                 deliverImmediately: true,
             )
 
-        NSWorkspace.shared.setIcon(
-            icon?.image(in: .main),
-            forFile: Bundle.main.bundlePath,
-        )
+        // Only explicit alternate icons need Finder's custom-icon mechanism.
+        // Applying it for the default adds Finder metadata/resource forks to
+        // the bundle and invalidates its code signature.
+        if icon != nil || previousIcon != nil {
+            NSWorkspace.shared.setIcon(icon?.image(in: .main), forFile: Bundle.main.bundlePath)
+        }
         NSWorkspace.shared.noteFileSystemChanged(Bundle.main.bundlePath)
+
+        // Refresh the running app directly: Launch Services can cache an old
+        // image for a development bundle rebuilt in place. The compiled icon
+        // and this image use the same padded artwork, without modifying files.
+        await MainActor.run {
+            NSApp.applicationIconImage = icon?.image(in: .main)
+                ?? Bundle.main.image(forResource: "AppIconImage")
+        }
     }
 }
 #endif

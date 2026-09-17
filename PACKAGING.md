@@ -1,3 +1,7 @@
+> This is inherited Ghostty documentation. For Toastty, start with
+> [development](docs/development.md) and [release readiness](docs/releases.md).
+> Upstream packaging and upload commands are not Toastty release instructions.
+
 # Packaging Ghostty for Distribution
 
 Ghostty relies on downstream package maintainers to distribute Ghostty to

@@ -1,49 +1,51 @@
 {
-  "configurations" : [
+  "configurations": [
     {
-      "id" : "22895D97-CB9E-4452-A6AA-702CC0152032",
-      "name" : "Test Scheme Action",
-      "options" : {
-
-      }
+      "id": "22895D97-CB9E-4452-A6AA-702CC0152032",
+      "name": "Test Scheme Action",
+      "options": {}
     }
   ],
-  "defaultOptions" : {
-    "commandLineArgumentEntries" : [
+  "defaultOptions": {
+    "commandLineArgumentEntries": [
       {
-        "argument" : "-NS🐞 YES"
+        "argument": "-NS\ud83d\udc1e YES"
       }
     ],
-    "environmentVariableEntries" : [
+    "environmentVariableEntries": [
       {
-        "key" : "GHOSTTY_CONFIG_PATH",
-        "value" : "\/tmp\/Ghostty\/testing_config.ghostty"
+        "key": "GHOSTTY_CONFIG_PATH",
+        "value": "/tmp/Ghostty/testing_config.ghostty"
+      },
+      {
+        "key": "GHOSTTY_USER_DEFAULTS_SUITE",
+        "value": "ToasttyUnitTests"
       }
     ],
-    "performanceAntipatternCheckerEnabled" : true,
-    "targetForVariableExpansion" : {
-      "containerPath" : "container:Ghostty.xcodeproj",
-      "identifier" : "A5B30530299BEAAA0047F10C",
-      "name" : "Ghostty"
+    "performanceAntipatternCheckerEnabled": true,
+    "targetForVariableExpansion": {
+      "containerPath": "container:Ghostty.xcodeproj",
+      "identifier": "A5B30530299BEAAA0047F10C",
+      "name": "Ghostty"
     }
   },
-  "testTargets" : [
+  "testTargets": [
     {
-      "parallelizable" : true,
-      "target" : {
-        "containerPath" : "container:Ghostty.xcodeproj",
-        "identifier" : "A54F45F22E1F047A0046BD5C",
-        "name" : "GhosttyTests"
+      "parallelizable": true,
+      "target": {
+        "containerPath": "container:Ghostty.xcodeproj",
+        "identifier": "A54F45F22E1F047A0046BD5C",
+        "name": "GhosttyTests"
       }
     },
     {
-      "parallelizable" : true,
-      "target" : {
-        "containerPath" : "container:Ghostty.xcodeproj",
-        "identifier" : "810ACC9E2E9D3301004F8F92",
-        "name" : "GhosttyUITests"
+      "parallelizable": true,
+      "target": {
+        "containerPath": "container:Ghostty.xcodeproj",
+        "identifier": "810ACC9E2E9D3301004F8F92",
+        "name": "GhosttyUITests"
       }
     }
   ],
-  "version" : 1
+  "version": 1
 }

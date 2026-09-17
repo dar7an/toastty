@@ -63,6 +63,7 @@ extension Ghostty {
                     )
                     .frame(width: Self.handleSize.width, height: Self.handleSize.height)
                     .contentShape(Rectangle())
+                    .help("Drag this pane to another pane's edge to move and snap it into place.")
 
                     if ellipsisVisible {
                         Image(systemName: "ellipsis")

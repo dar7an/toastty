@@ -83,6 +83,9 @@ pub fn build(b: *std.Build) !void {
             const define = try std.fmt.allocPrint(b.allocator, "-DLIBXML_{s}_ENABLED=1", .{name});
             try flags.append(b.allocator, define);
 
+            if (std.mem.eql(u8, field.name, "catalog")) {
+                try flags.append(b.allocator, "-DLIBXML_SGML_CATALOG_ENABLED=1");
+            }
             if (std.mem.eql(u8, field.name, "history")) {
                 try flags.appendSlice(b.allocator, &.{
                     "-DHAVE_LIBHISTORY=1",
@@ -129,11 +132,19 @@ pub fn build(b: *std.Build) !void {
 /// in the future we will parse this from configure.ac.
 pub const Version = struct {
     pub const major = "2";
-    pub const minor = "11";
-    pub const micro = "5";
+    pub const minor = "15";
+    pub const micro = "4";
 
+    fn int(comptime s: []const u8) comptime_int {
+        return comptime std.fmt.parseInt(u32, s, 10) catch unreachable;
+    }
+
+    /// LIBXML_VERSION_NUMBER = major * 10000 + minor * 100 + micro
+    /// (see configure.ac in the upstream project)
     pub fn number() []const u8 {
-        return comptime major ++ "0" ++ minor ++ "0" ++ micro;
+        return comptime std.fmt.comptimePrint("{}", .{
+            int(major) * 10000 + int(minor) * 100 + int(micro),
+        });
     }
 
     pub fn string() []const u8 {
@@ -168,6 +179,7 @@ const Options = struct {
     push: bool = true,
     reader: bool = true,
     regexp: bool = true,
+    relaxng: bool = true,
     run_debug: bool = false,
     sax1: bool = true,
     schemas: bool = true,
@@ -200,15 +212,12 @@ const srcs = &.{
     "hash.c",
     "HTMLparser.c",
     "HTMLtree.c",
-    "legacy.c",
     "list.c",
-    "nanoftp.c",
     "nanohttp.c",
     "parser.c",
     "parserInternals.c",
     "pattern.c",
     "relaxng.c",
-    "SAX.c",
     "SAX2.c",
     "schematron.c",
     "threads.c",
@@ -226,9 +235,7 @@ const srcs = &.{
     "xmlschemas.c",
     "xmlschemastypes.c",
     "xmlstring.c",
-    "xmlunicode.c",
     "xmlwriter.c",
     "xpath.c",
     "xpointer.c",
-    "xzlib.c",
 };

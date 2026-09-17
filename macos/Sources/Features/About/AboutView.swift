@@ -3,8 +3,8 @@ import SwiftUI
 struct AboutView: View {
     @Environment(\.openURL) var openURL
 
-    private let githubURL = URL(string: "https://github.com/ghostty-org/ghostty")
-    private let docsURL = URL(string: "https://ghostty.org/docs")
+    private let githubURL = URL(string: "https://github.com/dar7an/toastty")
+    private let docsURL = URL(string: "https://github.com/dar7an/toastty/blob/main/docs/usage.md")
 
     /// Read the commit from the bundle.
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -33,8 +33,7 @@ struct AboutView: View {
         var url: URL? {
             switch self {
             case .stable(let version):
-                let slug = version.replacingOccurrences(of: ".", with: "-")
-                return URL(string: "https://ghostty.org/docs/install/release-notes/\(slug)")
+                return URL(string: "https://github.com/dar7an/toastty/releases/tag/v\(version)")
             default:
                 return nil
             }
@@ -45,43 +44,20 @@ struct AboutView: View {
 
     private var copyright: String? { Bundle.main.infoDictionary?["NSHumanReadableCopyright"] as? String }
 
-    // This creates a background style similar to the Apple "About My Mac" Window
-    private struct VisualEffectBackground: NSViewRepresentable {
-        let material: NSVisualEffectView.Material
-        let blendingMode: NSVisualEffectView.BlendingMode
-        let isEmphasized: Bool
-
-        init(material: NSVisualEffectView.Material,
-             blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
-             isEmphasized: Bool = false) {
-            self.material = material
-            self.blendingMode = blendingMode
-            self.isEmphasized = isEmphasized
-        }
-
-        func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-            nsView.material = material
-            nsView.blendingMode = blendingMode
-            nsView.isEmphasized = isEmphasized
-        }
-
-        func makeNSView(context: Context) -> NSVisualEffectView {
-            let visualEffect = NSVisualEffectView()
-            visualEffect.autoresizingMask = [.width, .height]
-            return visualEffect
-        }
-    }
-
     var body: some View {
         VStack(alignment: .center) {
-            CyclingIconView()
+            Image("AppIconImage")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 128, height: 128)
+                .accessibilityLabel("Toastty application icon")
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text("Ghostty")
+                    Text("Toastty")
                         .bold()
                         .font(.title)
-                    Text("Fast, native, feature-rich terminal \nemulator pushing modern features.")
+                    Text("A macOS terminal with project workspaces.\nBuilt on Ghostty and libghostty.")
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .font(.caption)
@@ -124,6 +100,15 @@ struct AboutView: View {
                     }
                 }
 
+                Link("Ghostty · Mitchell Hashimoto and contributors",
+                     destination: URL(string: "https://ghostty.org")!)
+                    .font(.caption)
+                Button("Open Source Licenses") {
+                    if let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
                 if let copy = self.copyright {
                     Text(copy)
                         .font(.caption)
@@ -131,6 +116,7 @@ struct AboutView: View {
                         .tint(.secondary)
                         .opacity(0.8)
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                 }
             }

@@ -3595,6 +3595,15 @@ keybind: Keybinds = .{},
 /// `custom-style`.
 @"macos-icon-screen-color": ?ColorList = null,
 
+/// Show named projects in a sidebar on macOS. Each project owns its own
+/// terminal tabs and remembers its selected tab. The selected project's tabs
+/// appear above the terminal area, to the right of the sidebar. Projects can
+/// be created and renamed in the sidebar. Disabled with a hidden titlebar.
+/// Changes to this option require opening a new window.
+///
+/// Enabled by default in Toastty.
+@"macos-tabs-sidebar": bool = true,
+
 /// Whether macOS Shortcuts are allowed to control Ghostty.
 ///
 /// Ghostty exposes a number of actions that allow Shortcuts to
@@ -4173,7 +4182,11 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
     defer alloc.free(xdg_path);
     const xdg_loaded: bool = xdg_loaded: {
         const legacy_xdg_action = self.loadOptionalFile(alloc, legacy_xdg_path);
-        const xdg_action = self.loadOptionalFile(alloc, xdg_path);
+        const xdg_action: OptionalFileAction = if (!std.mem.eql(
+            u8,
+            legacy_xdg_path,
+            xdg_path,
+        )) self.loadOptionalFile(alloc, xdg_path) else .not_found;
         if (xdg_action != .not_found and legacy_xdg_action != .not_found) {
             log.warn("both config files `{s}` and `{s}` exist.", .{ legacy_xdg_path, xdg_path });
             log.warn("loading them both in that order", .{});

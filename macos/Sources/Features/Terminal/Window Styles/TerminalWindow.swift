@@ -12,6 +12,9 @@ class TerminalWindow: NSWindow {
     /// Posted when a terminal window will close
     static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
 
+    /// Posted when a terminal window's tab color changes
+    static let tabColorDidChangeNotification = Notification.Name("TerminalWindowTabColorDidChange")
+
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -66,6 +69,7 @@ class TerminalWindow: NSWindow {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
             invalidateRestorableState()
+            NotificationCenter.default.post(name: Self.tabColorDidChangeNotification, object: self)
         }
     }
 
@@ -219,6 +223,7 @@ class TerminalWindow: NSWindow {
         } else {
             tabBarDidDisappear()
         }
+        hideProjectNativeTabBar()
         viewModel.isMainWindow = true
     }
 
@@ -242,6 +247,87 @@ class TerminalWindow: NSWindow {
         targetController.promptTabTitle()
     }
 
+    private var projectFullscreenCancellable: AnyCancellable?
+
+    /// Called once the controller is connected, after the nib's default chrome
+    /// and after the split view is attached. The split controller supplies
+    /// the retained per-window toolbar delegate, so the `.toggleSidebar` /
+    /// tracking-separator / tab-strip toolbar never propagates to unrelated
+    /// windows.
+    func configureProjectChrome(splitController: ProjectSplitViewController? = nil) {
+        styleMask.insert(.fullSizeContentView)
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        let toolbar = NSToolbar(identifier: "ProjectToolbar.\(terminalController?.projectTabID.uuidString ?? UUID().uuidString)")
+        toolbar.delegate = splitController?.toolbarDelegate
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.displayMode = .iconOnly
+        self.toolbar = toolbar
+        toolbarStyle = .unified
+        toolbar.showsBaselineSeparator = false
+        projectFullscreenCancellable = NotificationCenter.default
+            .publisher(for: NSWindow.didEnterFullScreenNotification, object: self)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.hideProjectNativeTabBar() }
+        for index in titlebarAccessoryViewControllers.indices.reversed() {
+            let accessory = titlebarAccessoryViewControllers[index]
+            if accessory === resetZoomAccessory || accessory === updateAccessory {
+                removeTitlebarAccessoryViewController(at: index)
+            }
+        }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        guard terminalController?.usesProjectSidebar == true else { return children }
+        // AppKit synthesizes tab accessibility elements even for a hidden accessory.
+        // Expose the project-scoped SwiftUI strip instead of that flat, hidden strip.
+        return children?.filter { ($0 as? NSAccessibilityProtocol)?.accessibilityRole() != .tabGroup }
+    }
+
+    /// Keep AppKit's terminal lifecycle but put navigation in the content column.
+    func hideProjectNativeTabBar() {
+        guard terminalController?.usesProjectSidebar == true else { return }
+        for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
+            accessory.isHidden = true
+            accessory.view.setAccessibilityHidden(true)
+        }
+        // AppKit moves the titlebar into a separate window in fullscreen.
+        // Its synthesized tab accessibility elements bypass our window override.
+        if styleMask.contains(.fullScreen), let toolbarWindow = titlebarContainer?.window, toolbarWindow !== self {
+            toolbarWindow.setAccessibilityChildren(toolbarWindow.accessibilityChildren()?.filter {
+                ($0 as? NSAccessibilityProtocol)?.accessibilityRole() != .tabGroup
+            })
+        }
+    }
+
+    override func toggleTabBar(_ sender: Any?) {
+        guard terminalController?.usesProjectSidebar != true else { return }
+        super.toggleTabBar(sender)
+    }
+
+    override func selectNextTab(_ sender: Any?) {
+        guard terminalController?.usesProjectSidebar == true else { super.selectNextTab(sender); return }
+        selectProjectTab(offset: 1)
+    }
+
+    override func selectPreviousTab(_ sender: Any?) {
+        guard terminalController?.usesProjectSidebar == true else { super.selectPreviousTab(sender); return }
+        selectProjectTab(offset: -1)
+    }
+
+    private func selectProjectTab(offset: Int) {
+        guard let tabs = terminalController?.projectTabWindows,
+              let index = tabs.firstIndex(of: self), !tabs.isEmpty else { return }
+        tabs[(index + offset + tabs.count) % tabs.count].makeKeyAndOrderFront(nil)
+    }
+
+    override func toggleTabOverview(_ sender: Any?) {
+        guard terminalController?.usesProjectSidebar != true else { return }
+        super.toggleTabOverview(sender)
+    }
+
     override func mergeAllWindows(_ sender: Any?) {
         super.mergeAllWindows(sender)
 
@@ -260,6 +346,10 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            if terminalController?.usesProjectSidebar == true {
+                childViewController.isHidden = true
+                childViewController.view.setAccessibilityHidden(true)
+            }
             tabBarDidAppear()
         }
     }
@@ -315,6 +405,7 @@ class TerminalWindow: NSWindow {
     }
 
     private func tabBarDidDisappear() {
+        guard terminalController?.usesProjectSidebar != true else { return }
         if styleMask.contains(.titled) {
             if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
@@ -756,11 +847,11 @@ private struct TabColorIndicatorView: View {
 // MARK: - Tab Context Menu
 
 extension TerminalWindow {
-    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
-    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
-    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.dar7an.toastty.closeTabsOnTheRightMenuItem")
+    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.dar7an.toastty.changeTitleMenuItem")
+    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.dar7an.toastty.tabColorSeparator")
 
-    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
+    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.dar7an.toastty.tabColorPalette")
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }
@@ -828,14 +919,37 @@ extension TerminalWindow {
         changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
         menu.addItem(changeTitleItem)
 
-        let paletteItem = NSMenuItem()
-        paletteItem.identifier = Self.tabColorPaletteIdentifier
-        paletteItem.view = makeTabColorPaletteView(
-            selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
-        ) { [weak target] color in
-            (target?.window as? TerminalWindow)?.tabColor = color
+        // The color section targets the right-clicked tab's controller, not the
+        // key window's: `target` comes from the native menu item for the tab
+        // under the cursor. Setting tabColor updates that tab immediately,
+        // persists via restorable state, and refreshes the sidebar row through
+        // tabColorDidChangeNotification. No global event monitor is used.
+        let selectedColor = (target?.window as? TerminalWindow)?.tabColor ?? .none
+        if #available(macOS 14.0, *) {
+            // Native single-row palette submenu on macOS 14+.
+            let colorItem = NSMenuItem(title: "Tab Color", action: nil, keyEquivalent: "")
+            colorItem.identifier = Self.tabColorPaletteIdentifier
+            colorItem.submenu = makeProjectTabColorMenu(selected: selectedColor) { [weak target] color in
+                (target?.window as? TerminalWindow)?.tabColor = color
+            }
+            colorItem.setImageIfDesired(systemSymbolName: "paintpalette")
+            menu.addItem(colorItem)
+        } else {
+            // macOS 13 reuses the same single-row SwiftUI palette as a custom
+            // menu-item view. Custom views don't dismiss the menu on their own,
+            // so the handler cancels tracking up to the root menu.
+            let paletteItem = NSMenuItem()
+            paletteItem.identifier = Self.tabColorPaletteIdentifier
+            paletteItem.view = makeTabColorPaletteView(selectedColor: selectedColor) { [weak target, weak paletteItem] color in
+                (target?.window as? TerminalWindow)?.tabColor = color
+                var root = paletteItem?.menu
+                while let parent = root?.supermenu {
+                    root = parent
+                }
+                root?.cancelTracking()
+            }
+            menu.addItem(paletteItem)
         }
-        menu.addItem(paletteItem)
     }
 }
 

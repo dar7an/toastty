@@ -13,9 +13,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz",
-    "dest": "vendor/p/N-V-__8AALw2uwF_03u4JRkZwRLc3Y9hakkYV7NKRR9-RIZJ",
-    "sha256": "6cca98943d1a990766cef61077c09aff5938063fe17a1efe1228e5412b6d6ad9"
+    "url": "https://github.com/getsentry/breakpad/archive/25b6b727af49fa383161e7dba4a82ab0661b69b8.tar.gz",
+    "dest": "vendor/p/N-V-__8AADx3vAHtUVzBYz79RN-jSBg-7vqr82KRG2PDDj3O",
+    "sha256": "583f32ac9ea23f5f463aa43cc606dad67d2d1938db33645cbaac76c61f66cd82"
   },
   {
     "type": "archive",
@@ -25,21 +25,21 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz",
-    "dest": "vendor/p/N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub",
-    "sha256": "427201f5d5151670d05c1f5b45bef5dda1f2e7dd971ef54f0feaaa7ffd2ab90c"
+    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
+    "dest": "vendor/p/N-V-__8AAJo-LAHFNfa0p0oMQqmwlBEAZMOeo03azXgrKLTT",
+    "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/gettext-0.24.tar.gz",
-    "dest": "vendor/p/N-V-__8AADcZkgn4cMhTUpIz6mShCKyqqB-NBtf_S2bHaTC-",
-    "sha256": "c918503d593d70daf4844d175a13d816afacb667c06fba1ec9dcd5002c1518b7"
+    "url": "https://ftp.gnu.org/gnu/gettext/gettext-0.26.tar.gz",
+    "dest": "vendor/p/N-V-__8AALdvswzDmWpxCzd-LJE1C1QZesjzfu0zd2mspjID",
+    "sha256": "39acf4b0371e9b110b60005562aace5b3631fed9b1bb9ecccfc7f56e58bb1d7f"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
-    "dest": "vendor/p/N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy",
-    "sha256": "14a2edbb509cb3e51a9a53e3f5e435dbf5971604b4b833e63e6076e8c0a997b5"
+    "url": "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.6.0.tar.gz",
+    "dest": "vendor/p/N-V-__8AAMmpvgL92dJGQdndHv_3KUj32P-C6QWT83-1-lEM",
+    "sha256": "9c09b901149c729df745057dafa815278aaa101b84d2b6e14f16a42de52f97f2"
   },
   {
     "type": "archive",
@@ -49,21 +49,21 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz",
-    "dest": "vendor/p/N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr",
-    "sha256": "98284281260a5eef5b4f63a55f16c4bf6a788a1020a6db037ecb0f71fa336988"
+    "url": "https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.3.0.tar.gz",
+    "dest": "vendor/p/N-V-__8AABZQBQCTF3bl5cdgQ9edw4SCFXPueCYtR6EL9IGu",
+    "sha256": "1ebb01ab14e98afd1727f68f64981c37bd23305b1f131f5667c02b94cf593192"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/harfbuzz-11.0.0.tar.xz",
-    "dest": "vendor/p/N-V-__8AAG02ugUcWec-Ndp-i7JTsJ0dgF8nnJRUInkGLG7G",
-    "sha256": "f16351bafe214725fe2c1d5b59f0d93e49905a4b247899fb90d70cff953a2b9b"
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.4.0/harfbuzz-14.4.0.tar.xz",
+    "dest": "vendor/p/N-V-__8AAAJ_FwYXbjMIdM8T_4Z402GcERnA3uFfjFDuQP4c",
+    "sha256": "2357ed966c6ced7bfa720b0640c0231065af01158fbea215093ffa15aed44371"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/highway-66486a10623fa0d72fe91260f96c892e41aceb06.tar.gz",
-    "dest": "vendor/p/N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
-    "sha256": "87d4f8893ef4e08f224973608ffebf94268a81380ba79c12e8841968c80aa212"
+    "url": "https://github.com/google/highway/archive/refs/tags/1.4.0.tar.gz",
+    "dest": "vendor/p/N-V-__8AAD_MkACxo3rELIYCI7ap_7GsxHN1WH6AsMLDYp6L",
+    "sha256": "e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c"
   },
   {
     "type": "archive",
@@ -85,9 +85,9 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz",
-    "dest": "vendor/p/N-V-__8AAJrvXQCqAT8Mg9o_tk6m0yf5Fz-gCNEOKLyTSerD",
-    "sha256": "fecc95b46cf05e8e3fc8a414750e0ba5aad00d89e9fdf175e94ff041caf1a03a"
+    "url": "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz",
+    "dest": "vendor/p/N-V-__8AAJexYAClrDiJ2R-eT-rfMNK2Qd3--2FRhY7e5nvn",
+    "sha256": "a9d4df463d36a6e5f9c29bd6f4967312d17e996c1854f3511f833924eb1993cf"
   },
   {
     "type": "archive",
@@ -97,21 +97,21 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/libxml2-2.11.5.tar.gz",
-    "dest": "vendor/p/N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK",
-    "sha256": "6c28059e2e3eeb42b5b4b16489e3916a6346c1095a74fee3bc65cdc5d89a6215"
+    "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+    "dest": "vendor/p/N-V-__8AAH30hwIndEJ9icgSaGo9HFSuUmIv1I6SlorjnfU-",
+    "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
-    "dest": "vendor/p/N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
-    "sha256": "1164d1b956d4bde248d7b2f0998c43cc94f5202431a1564a793895b1e73b0d04"
+    "url": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFontsSymbolsOnly.tar.xz",
+    "dest": "vendor/p/N-V-__8AAMlwTwAhAtzTNEG7Eg4j7oI33o0_gzLbwDalYZEE",
+    "sha256": "01172f37db8543edb102e5cb5c64101c9f4686630804d49b419aa07b23a69996"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/oniguruma-1220c15e72eadd0d9085a8af134904d9a0f5dfcbed5f606ad60edc60ebeccd9706bb.tar.gz",
-    "dest": "vendor/p/N-V-__8AAHjwMQDBXnLq3Q2QhaivE0kE2aD138vtX2Bq1g7c",
-    "sha256": "001aa1202e78448f4c0bf1a48c76e556876b36f16d92ce3207eccfd61d99f2a0"
+    "url": "https://github.com/kkos/oniguruma/archive/refs/tags/v6.9.10.tar.gz",
+    "dest": "vendor/p/N-V-__8AAPwCMwB54AUHwsvlixvQkvI1tZ5pRs35ZHfr5Evi",
+    "sha256": "ad92309d0d13eebc27f6592e875f3efbfa3dda2bf6da5952e00f0a2120c921a8"
   },
   {
     "type": "archive",
@@ -127,15 +127,15 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/sentry-1220446be831adcca918167647c06c7b825849fa3fba5f22da394667974537a9c77e.tar.gz",
-    "dest": "vendor/p/N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG",
-    "sha256": "2ac6497cc8d61a8d31093e47addb8c9b2c45b16b0705bb334a835b6423c318df"
+    "url": "https://github.com/getsentry/sentry-native/archive/refs/tags/0.16.6.tar.gz",
+    "dest": "vendor/p/N-V-__8AAKwoawA-G0w_56hQdIqb2ZLoaz064j7PZxgxJhvi",
+    "sha256": "a194ac434da1534723556c5628256752208b0b6989fee7bf5ed6c5b3c84773ab"
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz",
-    "dest": "vendor/p/N-V-__8AANb6pwD7O1WG6L5nvD_rNMvnSc9Cpg1ijSlTYywv",
-    "sha256": "b52b6fcfc45e7fa69b1f06a1362c155473444e2cc09995556b156c53ba6657e3"
+    "url": "https://github.com/KhronosGroup/SPIRV-Cross/archive/refs/tags/vulkan-sdk-1.4.357.0.tar.gz",
+    "dest": "vendor/p/N-V-__8AAG7ovABenbEcMfcbxnQahv_qPno7CwSPITx-k6RD",
+    "sha256": "97c910326afdd44d794ce8561326fa675fd1958b27142f03295403044d639639"
   },
   {
     "type": "archive",
@@ -223,8 +223,8 @@
   },
   {
     "type": "archive",
-    "url": "https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz",
-    "dest": "vendor/p/N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o",
-    "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c"
+    "url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+    "dest": "vendor/p/N-V-__8AAJ2cNgAgfBtAw33Bxfu1IWISDeKKSr3DAqoAysIJ",
+    "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
   }
 ]

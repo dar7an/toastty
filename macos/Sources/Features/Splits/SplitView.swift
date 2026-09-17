@@ -24,9 +24,6 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits.
     let onEqualize: () -> Void
 
-    /// The minimum size (in points) of a split
-    let minSize: CGFloat = 10
-
     /// The current fractional width of the split view. 0.5 means L/R are equally sized, for example.
     @Binding var split: CGFloat
 
@@ -34,6 +31,10 @@ struct SplitView<L: View, R: View>: View {
     /// be used for getting a resize handle. The total width/height of the splitter is the sum of both.
     private let splitterVisibleSize: CGFloat = 1
     private let splitterInvisibleSize: CGFloat = 6
+
+    @State private var coordinateSpaceID = UUID()
+    @State private var dragStartRatio: CGFloat?
+    @State private var snapTarget: CGFloat?
 
     var body: some View {
         GeometryReader { geo in
@@ -55,14 +56,16 @@ struct SplitView<L: View, R: View>: View {
                 Divider(direction: direction,
                         visibleSize: splitterVisibleSize,
                         invisibleSize: splitterInvisibleSize,
-                        color: dividerColor,
+                        color: snapTarget == nil ? dividerColor : .accentColor,
                         split: $split)
                     .position(splitterPoint)
-                    .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
+                    .gesture(dragGesture(geo.size))
+                    .help("Drag to resize; hold Option to avoid snapping. Double-click to equalize panes.")
                     .onTapGesture(count: 2) {
                         onEqualize()
                     }
             }
+            .coordinateSpace(name: coordinateSpaceID)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
         }
@@ -87,18 +90,33 @@ struct SplitView<L: View, R: View>: View {
         self.onEqualize = onEqualize
     }
 
-    private func dragGesture(_ size: CGSize, splitterPoint: CGPoint) -> some Gesture {
-        return DragGesture()
+    private func dragGesture(_ size: CGSize) -> some Gesture {
+        // A one-point threshold leaves ordinary double-clicks available to
+        // the equalize gesture while starting a resize without a visible lag.
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(coordinateSpaceID))
             .onChanged { gesture in
-                switch direction {
-                case .horizontal:
-                    let new = min(max(minSize, gesture.location.x), size.width - minSize)
-                    split = new / size.width
-
-                case .vertical:
-                    let new = min(max(minSize, gesture.location.y), size.height - minSize)
-                    split = new / size.height
+                if dragStartRatio == nil { dragStartRatio = split }
+                let extent = direction == .horizontal ? size.width : size.height
+                let translation = direction == .horizontal ? gesture.translation.width : gesture.translation.height
+                let result = SplitDividerSnap.resolve(
+                    position: (dragStartRatio ?? split) * extent + translation,
+                    extent: extent, previous: snapTarget,
+                    enabled: !(NSApp.currentEvent?.modifierFlags.contains(.option) ?? false))
+                if result.target != nil, result.target != snapTarget {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
                 }
+                // Direct manipulation must never trail the pointer or inherit
+                // an animation from surrounding chrome. Preserve the grab offset.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    snapTarget = result.target
+                    if split != result.ratio { split = result.ratio }
+                }
+            }
+            .onEnded { _ in
+                dragStartRatio = nil
+                snapTarget = nil
             }
     }
 

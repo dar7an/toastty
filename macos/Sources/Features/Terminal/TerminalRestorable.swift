@@ -77,6 +77,10 @@ final class TerminalRestorableState: TerminalRestorable {
         internalState.titleOverride
     }
 
+    var project: TerminalProject? { internalState.project }
+    var projectTabID: UUID? { internalState.projectTabID }
+    var sidebarState: SidebarState? { internalState.sidebarState }
+
     /// Internal State we use to perform unit tests
     ///
     /// Since we can't really change the type of `TerminalRestorableState`
@@ -157,7 +161,10 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // be.
         let c = TerminalController.init(
             appDelegate.ghostty,
-            withSurfaceTree: state.surfaceTree)
+            withSurfaceTree: state.surfaceTree,
+            project: state.project, projectTabID: state.projectTabID,
+            sidebarState: state.sidebarState)
+        c.projectNeedsMigration = state.project == nil
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return

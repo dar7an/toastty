@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-# Build the macOS Ghostty app using xcodebuild with a clean environment
+# Build the macOS Toastty app (upstream Xcode scheme: Ghostty) using xcodebuild with a clean environment
 # to avoid Nix shell interference (NIX_LDFLAGS, NIX_CFLAGS_COMPILE, etc.).
 
 def main [

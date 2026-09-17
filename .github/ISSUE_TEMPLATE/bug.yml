@@ -1,0 +1,17 @@
+name: Bug report
+description: Report a reproducible Toastty problem.
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What happened?
+      description: Include steps, expected behavior, and actual behavior. Remove private terminal content.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Toastty commit/version, macOS version, architecture, and relevant configuration.
+    validations:
+      required: true

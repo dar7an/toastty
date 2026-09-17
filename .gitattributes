@@ -39,6 +39,10 @@ Makefile text eol=lf
 *.ttf binary
 *.otf binary
 
+# Preserve third-party license texts verbatim, including their whitespace.
+licenses/** -text -whitespace linguist-vendored
+macos/Sources/ThirdPartyNotices.txt -whitespace linguist-generated
+
 #--------------------------------------------------------------------
 # Linguist
 #--------------------------------------------------------------------

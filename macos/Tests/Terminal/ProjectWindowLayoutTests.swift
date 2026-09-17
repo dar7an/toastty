@@ -1,0 +1,148 @@
+import AppKit
+import SwiftUI
+import Testing
+@testable import Ghostty
+
+@MainActor
+@Suite(.serialized)
+struct ProjectWindowLayoutTests {
+    @Test func nativeToolbarFillsAvailableWidthAndPreservesTerminalHeight() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 260)
+        let controller = fixture.controller
+        let window = fixture.window
+        let container = fixture.container
+        let split = fixture.split
+        defer { controller.window = nil; window.close() }
+        window.orderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        #expect(abs(split.sidebarSplitItem.viewController.view.frame.width - 260) < 1)
+        let item = try #require(window.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        })
+        let host = try #require(item.view)
+        #expect(host.frame.width > 600)
+        let newTab = try #require(window.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
+        })
+        let sidebar = try #require(window.toolbar?.items.first { $0.itemIdentifier == .toggleSidebar })
+        // Both actions are AppKit toolbar controls, sized by the same native
+        // metrics rather than a SwiftUI button with a smaller fixed frame.
+        #expect(newTab.isBordered)
+        #expect(newTab.action == #selector(TerminalController.newTab(_:)))
+        #expect(newTab.target === controller)
+        // New Tab leaves button creation to AppKit; Toggle Sidebar is itself
+        // an AppKit-provided NSButton. Compare their sizes in the live app.
+        #expect(newTab.view == nil)
+        #expect(sidebar.view is NSButton)
+        #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
+        #expect(split.sidebarSplitItem.allowsFullHeightLayout)
+
+        let material = try #require(descendants(of: split.sidebarSplitItem.viewController.view)
+            .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar })
+        let materialFrame = material.convert(material.bounds, to: container)
+        #expect(abs(materialFrame.maxY - container.bounds.maxY) < 1)
+
+        container.initialContentSize = NSSize(width: 800, height: 480)
+        TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        #expect(TerminalController.projectToolbarInset(window) > 0)
+        #expect(abs(window.contentLayoutRect.height - 480) < 1)
+    }
+
+    @Test func nativeDividerResizeUpdatesSharedState() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let controller = fixture.controller
+        let window = fixture.window
+        let split = fixture.split
+        defer { controller.window = nil; window.close() }
+        window.orderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        split.splitView.setPosition(280, ofDividerAt: 0)
+        await drainMainQueue()
+        #expect(window.tabGroup?.tabSidebarModel.width == 280)
+        #expect(controller.sidebarState?.expandedWidth == 280)
+    }
+
+    @Test func renderedTabCellIncludesItsPadding() {
+        let window = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let row = TabSidebarModel.Row(window: window, project: TerminalProject(directory: "/tmp"), title: "Terminal")
+        let cell = NSHostingView(rootView: ProjectTabCell(
+            row: row, isSelected: true, onSelect: { _ in }, showSeparator: false, width: 198))
+        #expect(abs(cell.fittingSize.width - 198) < 0.5)
+    }
+
+    @Test func tabContextMenuUsesCompactAccessiblePalette() throws {
+        let window = TerminalWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.tabColor = .purple
+        let menu = makeProjectTabContextMenu(for: window)
+        let row = try #require(menu.items.last?.view as? TabColorPaletteRowView)
+        let buttons = row.arrangedSubviews.compactMap { $0 as? NSButton }
+        #expect(buttons.count == TerminalTabColor.allCases.count)
+        #expect(row.frame.width <= 260)
+        #expect(row.frame.height >= 30)
+        #expect(buttons.map(\.tag) == TerminalTabColor.allCases.map(\.rawValue))
+        #expect(buttons.allSatisfy { $0.image?.size == NSSize(width: 18, height: 18) })
+        buttons[TerminalTabColor.green.rawValue].performClick(nil)
+        #expect(window.tabColor == .green)
+        buttons[TerminalTabColor.none.rawValue].performClick(nil)
+        #expect(window.tabColor == .none)
+    }
+
+    /// Exercise native layout without starting a terminal process or relying on
+    /// SwiftUI terminal focus callbacks, which are covered by desktop checks.
+    private struct WindowFixture {
+        let controller: TerminalController
+        let window: TerminalWindow
+        let container: TerminalViewContainer
+        let split: ProjectSplitViewController
+    }
+
+    private func makeWindow(
+        _ app: Ghostty.App,
+        width: CGFloat
+    ) -> WindowFixture {
+        let controller = TerminalController(app, withSurfaceTree: .init(), usesProjectSidebar: true)
+        let window = TerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
+                                    styleMask: [.titled, .resizable, .closable, .fullSizeContentView],
+                                    backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .preferred
+        controller.window = window
+        let model = window.tabGroup!.tabSidebarModel
+        model.setExpandedWidth(width)
+        let split = ProjectSplitViewController(controller: controller, content: AnyView(Color.clear))
+        split.bind(to: model, animated: false)
+        let container = TerminalViewContainer { EmptyView() }
+        container.embedProjectSplitViewController(split)
+        container.initialContentWidthInset = { model.width }
+        container.initialContentHeightInset = { [weak window] in
+            window.map(TerminalController.projectToolbarInset) ?? 0
+        }
+        window.contentView = container
+        window.configureProjectChrome(splitController: split)
+        return WindowFixture(controller: controller, window: window, container: container, split: split)
+    }
+
+    private func drainMainQueue() async {
+        for _ in 0..<5 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+}

@@ -1,14 +1,14 @@
 .{
     .name = .gtk4_layer_shell,
-    .version = "1.1.0",
+    .version = "1.3.0",
     .fingerprint = 0x4b96f9483c6feeb1,
     .paths = .{""},
     .dependencies = .{
         .translate_c = .{ .path = "../translate-c" },
 
         .gtk4_layer_shell = .{
-            .url = "https://deps.files.ghostty.org/gtk4-layer-shell-1.1.0.tar.gz",
-            .hash = "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr",
+            .url = "https://github.com/wmww/gtk4-layer-shell/archive/refs/tags/v1.3.0.tar.gz",
+            .hash = "N-V-__8AABZQBQCTF3bl5cdgQ9edw4SCFXPueCYtR6EL9IGu",
             .lazy = true,
         },
         .wayland_protocols = .{
