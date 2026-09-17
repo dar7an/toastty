@@ -3,10 +3,8 @@ import SwiftUI
 
 /// Finder-style horizontal tab strip for one project.
 ///
-/// Driven by the shared ``TabSidebarModel`` plus two closures so the same
-/// view works both in an `NSSplitView` content header and in the native
-/// `NSToolbar` hosting view (workstream C): it depends on neither parent
-/// layout, has a fixed height (``stripHeight``) and a flexible width.
+/// Driven by the shared ``TabSidebarModel`` and a selection action, hosted
+/// in the native toolbar with a fixed height and a flexible width.
 ///
 /// Sizing formula: the capsule rail reserves ``capsulePadding`` points of
 /// interior horizontal padding (3pt on each side). The remaining width is
@@ -140,6 +138,7 @@ struct ProjectTabCell: View {
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityValue(row.tabColor == .none ? "" : "\(row.tabColor.localizedName) tab")
             Button {
                 (row.window.windowController as? TerminalController)?.closeTab(nil)
             } label: {

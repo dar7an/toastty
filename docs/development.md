@@ -48,7 +48,8 @@ Manual acceptance before releases:
 
 | Path | Responsibility |
 | --- | --- |
-| `macos/Sources/Features/Terminal/` | Workspace model, sidebar, tab rail, windows |
+| `macos/Sources/Features/Terminal/` | Terminal lifecycle, restoration, and window styles |
+| `macos/Sources/Features/Terminal/Projects/` | Project metadata, shared sidebar state, sidebar view, split layout, and toolbar |
 | `macos/Sources/Features/Splits/` | Pane layout, drag/drop, snapping |
 | `macos/Tests/` | Swift model and native-layout regression tests |
 | `src/`, `include/`, `pkg/` | Inherited Ghostty engine, C API, dependency recipes |

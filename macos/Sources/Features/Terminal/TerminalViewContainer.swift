@@ -53,6 +53,7 @@ class TerminalViewContainer: NSView {
         // Default Size detects no change once applied).
         if projectSplitViewController != nil {
             hostingSize.width += initialContentWidthInset?() ?? 0
+            hostingSize.height += initialContentHeightInset?() ?? 0
         }
         // The hosting view returns a valid size once SwiftUI has laid out
         // with the correct idealWidth/idealHeight. Before that (when

@@ -1535,49 +1535,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             inProject: TerminalProject(directory: directory))
     }
 
-    /// Prompt for a project rename. Creation is owned by `newProject`
-    /// (directory identity, no prompt); this shim keeps the underspecified
-    /// call working for other workstreams.
-    func promptProjectName(rename: Bool = false) {
-        guard let window else { return }
-        if rename, usesProjectSidebar, window.tabGroup != nil {
-            window.tabGroup?.tabSidebarModel.selectProject(project.id)
-            window.tabGroup?.tabSidebarModel.beginRename(projectID: project.id)
-            return
-        }
-        if !rename {
-            newProject(nil)
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = "Rename Project"
-        alert.informativeText = "Each project keeps its own tabs."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = "Project name"
-        field.stringValue = projectDisplayName(project)
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let nameObserver = NotificationCenter.default.addObserver(
-            forName: NSTextField.textDidChangeNotification, object: field, queue: .main
-        ) { _ in
-            alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            NotificationCenter.default.removeObserver(nameObserver)
-            guard let self, response == .alertFirstButtonReturn else { return }
-            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
-            for tab in self.projectTabWindows {
-                guard let controller = tab.windowController as? TerminalController else { continue }
-                controller.project.nameOverride = (name == controller.project.automaticName) ? nil : name
-            }
-            window.tabGroup?.tabSidebarModel.refresh()
-        }
-    }
-
     func closeProject() {
         let controllers = projectTabWindows.compactMap { $0.windowController as? TerminalController }
         let projectID = project.id

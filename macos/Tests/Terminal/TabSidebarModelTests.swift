@@ -5,6 +5,34 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TabSidebarModelTests {
+    @Test func establishedDirectoryBackfillsOtherTabsInTheProject() async throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let project = TerminalProject(directory: "/tmp/established")
+        let controllers = (0..<2).map { index in
+            var metadata = project
+            if index == 1 { metadata.directory = nil }
+            let controller = TerminalController(app, withSurfaceTree: .init(), project: metadata)
+            let window = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach { $0.window = nil }
+            windows.forEach { $0.close() }
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        let model = try #require(windows[0].tabGroup?.tabSidebarModel)
+        await drainMainQueue()
+        model.refresh()
+        #expect(controllers.allSatisfy { $0.project.directory == "/tmp/established" })
+        model.select(ObjectIdentifier(windows[1]))
+        #expect(model.visibleTabs.allSatisfy { $0.project.displayName == "established" })
+    }
+
     @Test func directoryFollowsOnlyTheFocusedSplit() async throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -227,7 +255,7 @@ struct TabSidebarModelTests {
 
         let renamed = try #require(model.projects.first(where: { $0.id == alpha.id }))
         #expect(renamed.displayName == "Renamed")
-        #expect(projectDisplayName(renamed) == "Renamed")
+        #expect(renamed.displayName == "Renamed")
         #expect(renamed.id == alpha.id)
         #expect(renamed.directory == "/tmp/alpha-dir")
         // Workstream A: `name` is the resolved display name (no stored name).
@@ -326,10 +354,9 @@ struct TabSidebarModelTests {
         let json = #"{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","name":"Old"}"#
         let decoded = try JSONDecoder().decode(TerminalProject.self, from: Data(json.utf8))
         #expect(decoded.directory == nil)
-        // Workstream A: a legacy `name` decodes as the preserved override.
+        // A legacy `name` decodes as the preserved override.
         #expect(decoded.nameOverride == "Old")
         #expect(decoded.displayName == "Old")
-        #expect(projectDisplayName(decoded) == "Old")
     }
 
     @Test func directoryDerivedDisplayNames() {
@@ -345,7 +372,7 @@ struct TabSidebarModelTests {
         #expect(TerminalProject(directory: "/tmp/x", nameOverride: "Custom").displayName == "Custom")
         #expect(TerminalProject(directory: "/tmp/x", nameOverride: "  ").displayName == "x")
         #expect(TerminalProject(directory: "/tmp/x", nameOverride: "").displayName == "x")
-        #expect(projectDisplayName(TerminalProject(directory: "/tmp/x")) == "x")
+        #expect(TerminalProject(directory: "/tmp/x").displayName == "x")
     }
 
     @Test func homeDirectoryAbbreviation() {

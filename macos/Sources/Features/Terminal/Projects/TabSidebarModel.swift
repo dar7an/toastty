@@ -1,146 +1,6 @@
 import AppKit
 import Combine
 import ObjectiveC
-import SwiftUI
-
-/// Stable identity shared by the tabs that belong to a directory project.
-///
-/// A project is identified by `id`, so two projects may share the same
-/// directory or display name. `directory` is the fixed directory the project
-/// was created from — changing directories inside a tab never updates it.
-/// `nameOverride` is a user-supplied rename; nil means the name is derived.
-struct TerminalProject: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var directory: String?
-    var nameOverride: String?
-    var selectedTabID: UUID?
-
-    /// Legacy-compatible display name. Prefer `displayName` in new code.
-    var name: String {
-        get { displayName }
-        set { nameOverride = newValue }
-    }
-
-    /// The name shown in the UI: an explicit rename when set, otherwise the
-    /// basename of the project directory, otherwise a generic fallback.
-    var displayName: String {
-        if let override = nameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            return override
-        }
-        return automaticName
-    }
-
-    /// The derived name without any user override: the directory basename,
-    /// with root staying "/" and a generic fallback when directory is missing.
-    var automaticName: String {
-        if let directory, !directory.isEmpty {
-            if directory == "/" { return "/" }
-            let base = URL(fileURLWithPath: directory).lastPathComponent
-            if !base.isEmpty { return base }
-            return directory
-        }
-        return "Terminal"
-    }
-
-    /// The project directory with the current user's home abbreviated to `~`.
-    /// Paths outside the home directory (including spaces and Unicode) pass
-    /// through unchanged.
-    var abbreviatedDirectory: String? {
-        directory.map { ($0 as NSString).abbreviatingWithTildeInPath }
-    }
-
-    init(
-        id: UUID = UUID(),
-        directory: String? = nil,
-        nameOverride: String? = nil,
-        selectedTabID: UUID? = nil
-    ) {
-        self.id = id
-        self.directory = directory
-        self.nameOverride = nameOverride
-        self.selectedTabID = selectedTabID
-    }
-
-    /// Legacy initializer: pre-directory projects were identified by name,
-    /// which is preserved as the override.
-    init(id: UUID = UUID(), name: String, selectedTabID: UUID? = nil, directory: String? = nil) {
-        self.init(
-            id: id,
-            directory: directory,
-            nameOverride: name.isEmpty ? nil : name,
-            selectedTabID: selectedTabID)
-    }
-
-    /// Copy with a new selected tab.
-    func withSelectedTab(_ tabID: UUID?) -> TerminalProject {
-        var copy = self
-        copy.selectedTabID = tabID
-        return copy
-    }
-
-    /// Remember the project's directory once without changing its display
-    /// name. Later `cd`s must never call this: the directory is identity.
-    mutating func backfillDirectory(from pwd: String?) {
-        guard directory == nil, let pwd, !pwd.isEmpty else { return }
-        directory = pwd
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case name
-        case nameOverride
-        case directory
-        case selectedTabID
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        directory = try container.decodeIfPresent(String.self, forKey: .directory)
-        if container.contains(.nameOverride) {
-            nameOverride = try container.decodeIfPresent(String.self, forKey: .nameOverride)
-        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .name) {
-            // Old records only carry the resolved `name`; preserve it as the
-            // override so the display name survives the migration.
-            nameOverride = legacy
-        } else {
-            nameOverride = nil
-        }
-        selectedTabID = try container.decodeIfPresent(UUID.self, forKey: .selectedTabID)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        // The resolved legacy field stays encoded for older clients.
-        try container.encode(displayName, forKey: .name)
-        // Encoded explicitly (including null) so derived names stay
-        // distinguishable from overridden ones across a round-trip.
-        try container.encode(nameOverride, forKey: .nameOverride)
-        try container.encode(directory, forKey: .directory)
-        try container.encode(selectedTabID, forKey: .selectedTabID)
-    }
-}
-
-/// TODO-tolerant helper for workstream A: uses `displayName` when available, else `name`.
-func projectDisplayName(_ project: TerminalProject) -> String {
-    project.displayName
-}
-
-/// Collapsible-sidebar state shared by every window in one AppKit tab group.
-/// Stored on ``TabSidebarModel`` (the per-group source of truth) and mirrored
-/// onto member controllers for undo/restoration. Optional in restorable state
-/// so archives written before the sidebar collapse feature decode as nil.
-struct SidebarState: Codable, Equatable {
-    /// Whether the sidebar split item is expanded. Collapse reallocates
-    /// space to the terminal content item; the outer window frame is kept.
-    var isVisible: Bool
-
-    /// The divider width restored on expansion. Always clamped to
-    /// `TabSidebarModel.minWidth...maxWidth`.
-    var expandedWidth: CGFloat
-}
 
 extension NSWindowTabGroup {
     private static var tabSidebarModelKey: UInt8 = 0
@@ -160,9 +20,9 @@ extension NSWindowTabGroup {
 
 /// Shared project and tab state for one visible window. Mutated on the main queue.
 final class TabSidebarModel: ObservableObject {
-    static let minWidth: CGFloat = 160
-    static let maxWidth: CGFloat = 320
-    static let defaultWidth: CGFloat = 220
+    static let minWidth = SidebarState.minWidth
+    static let maxWidth = SidebarState.maxWidth
+    static let defaultWidth = SidebarState.defaultWidth
 
     private static let widthDefaultsKey = "TabSidebarWidth"
 
@@ -230,7 +90,7 @@ final class TabSidebarModel: ObservableObject {
         lastProjectClick = nil
         selectProject(projectID)
         editingProjectID = projectID
-        editingDraft = projectDisplayName(project)
+        editingDraft = project.displayName
     }
 
     func commitRename() {
@@ -304,9 +164,9 @@ final class TabSidebarModel: ObservableObject {
 
     /// Record a divider width, clamped to the 160–320pt range.
     func setExpandedWidth(_ width: CGFloat) {
-        let clamped = min(Self.maxWidth, max(Self.minWidth, width))
-        guard clamped != sidebarState.expandedWidth else { return }
-        sidebarState.expandedWidth = clamped
+        let state = SidebarState(isVisible: sidebarState.isVisible, expandedWidth: width)
+        guard state != sidebarState else { return }
+        sidebarState = state
     }
 
     /// Mirrors group sidebar state onto member controllers so undo and state
@@ -400,11 +260,13 @@ final class TabSidebarModel: ObservableObject {
         // never update it: the directory is identity, not live state.
         var backfilledProjects = Set<UUID>()
         for controller in controllers where backfilledProjects.insert(controller.project.id).inserted {
-            guard controller.project.directory == nil else { continue }
             let siblings = controllers.filter { $0.project.id == controller.project.id }
             let remembered = siblings.first { $0.projectTabID == $0.project.selectedTabID }
                 ?? siblings.first
-            if let pwd = remembered?.focusedSurface?.pwd,
+            // A sibling may already have received the initial shell directory
+            // while another tab still holds the earlier, incomplete metadata.
+            let established = siblings.compactMap { $0.project.directory }.first
+            if let pwd = established ?? remembered?.focusedSurface?.pwd,
                TerminalController.isPlausibleProjectDirectory(pwd) {
                 for sibling in siblings {
                     sibling.project.backfillDirectory(from: pwd)
@@ -522,131 +384,4 @@ final class TabSidebarModel: ObservableObject {
         notificationTokens.forEach { NotificationCenter.default.removeObserver($0) }
         notificationTokens.removeAll()
     }
-}
-
-/// Project list content for the native sidebar split item (workstream C).
-///
-/// Width comes from the `NSSplitViewItem` divider (160–320pt) and the top of
-/// the sidebar extends under the native unified toolbar, so the 50pt traffic
-/// lights spacer, the project-title header, the 40pt tab row, and the SwiftUI
-/// resize handle that `ProjectWorkspaceView` used are gone. The tab strip
-/// lives in `ProjectTabStripView`, hosted by the toolbar instead.
-struct ProjectSidebarListView: View {
-    @ObservedObject var model: TabSidebarModel
-    let controller: TerminalController
-
-    var body: some View {
-        VStack(spacing: 0) {
-            List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
-                ForEach(model.projects) { project in
-                    projectRow(project)
-                        .tag(project.id)
-                        .help(projectHelp(project))
-                        .accessibilityLabel(projectAccessibilityLabel(project))
-                        .contextMenu {
-                            Button("Rename Project…") { model.beginRename(projectID: project.id) }
-                            Button("Close Project") { projectController(project)?.closeProject() }
-                            Divider()
-                            Button("New Project") { projectController(project)?.newProject(nil) }
-                        }
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .padding(.top, 8)
-            .contextMenu {
-                Button("New Project") { controller.newProject(nil) }
-            }
-        }
-        // Extend the sidebar's one material through the traffic-light and
-        // toolbar region, while the list itself respects the safe area.
-        .background(VisualEffectBackground(material: .sidebar).ignoresSafeArea())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Projects")
-    }
-
-        private func projectController(_ project: TerminalProject) -> TerminalController? {
-            model.selectProject(project.id)
-            return model.rows.first(where: { $0.id == model.selection })?.window.windowController as? TerminalController
-        }
-
-        private func projectRow(_ project: TerminalProject) -> some View {
-            HStack(spacing: 8) {
-                Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
-                // Only the visible window owns the editor and its focus.
-                // Hidden tabs share this model but must not create competing
-                // focused fields or commit the draft when they lose focus.
-                if model.editingProjectID == project.id,
-                   controller.window.map(ObjectIdentifier.init) == model.selection {
-                    ProjectRenameField(model: model, projectID: project.id)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(projectDisplayName(project))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let directory = model.directory(for: project) {
-                            Text(directory)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 5)
-            .padding(.horizontal, 3)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                model.clickProject(project.id)
-            }
-        }
-
-        private func projectHelp(_ project: TerminalProject) -> String {
-            let name = projectDisplayName(project)
-            if let directory = model.directory(for: project) {
-                return "\(name)\n\(directory)"
-            }
-            return name
-        }
-
-        private func projectAccessibilityLabel(_ project: TerminalProject) -> String {
-            let name = projectDisplayName(project)
-            if let directory = model.directory(for: project) {
-                return "\(name), \(directory)"
-            }
-            return name
-        }
-
-        private struct ProjectRenameField: View {
-            @ObservedObject var model: TabSidebarModel
-            let projectID: UUID
-            @FocusState private var focused: Bool
-
-            var body: some View {
-                TextField("", text: $model.editingDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1)
-                    .focused($focused)
-                    .onSubmit { model.commitRename() }
-                    .onExitCommand { model.cancelRename() }
-                    .onAppear {
-                        focused = true
-                        // Select the existing name so typing replaces it.
-                        DispatchQueue.main.async {
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
-                        }
-                    }
-                    .onChange(of: focused) { isFocused in
-                        // Clicking elsewhere commits a valid name, cancels an invalid one.
-                        if !isFocused, model.editingProjectID == projectID {
-                            model.commitRename()
-                        }
-                    }
-            }
-        }
 }
