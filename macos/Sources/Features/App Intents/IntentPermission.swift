@@ -1,15 +1,15 @@
 import AppKit
 
-/// Requests permission for Shortcuts app to interact with Ghostty
+/// Requests permission for Shortcuts app to interact with Toastty
 ///
 /// This function displays a permission dialog asking the user to allow Shortcuts
-/// to interact with Ghostty. The permission is automatically cached for 10 minutes
-/// if the user selects "Allow", meaning subsequent intent calls won't show the dialog
-/// again during that time period.
-/// 
+/// to interact with Toastty. The permission is cached persistently
+/// (allowDuration: .forever) if the user selects "Allow", meaning subsequent
+/// intent calls won't show the dialog again.
+///
 /// The permission uses a shared UserDefaults key across all intents, so granting
-/// permission for one intent allows all Ghostty intents to execute without additional
-/// prompts for the duration of the cache period.
+/// permission for one intent allows all Toastty intents to execute without additional
+/// prompts.
 /// 
 /// - Returns: `true` if permission is granted, `false` if denied
 /// 
@@ -45,7 +45,7 @@ func requestIntentPermission() async -> Bool {
 
             PermissionRequest.show(
                 "com.dar7an.toastty.shortcutsPermission",
-                message: "Allow Shortcuts to interact with Ghostty?",
+                message: "Allow Shortcuts to interact with Toastty?",
                 allowDuration: .forever,
                 rememberDuration: nil,
             ) { response in

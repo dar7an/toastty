@@ -657,6 +657,23 @@ typedef enum {
   GHOSTTY_GOTO_TAB_LAST = -3,
 } ghostty_action_goto_tab_e;
 
+// apprt.action.GotoProject (Toastty-specific)
+typedef enum {
+  GHOSTTY_GOTO_PROJECT_PREVIOUS = -1,
+  GHOSTTY_GOTO_PROJECT_NEXT = -2,
+  GHOSTTY_GOTO_PROJECT_LAST = -3,
+} ghostty_action_goto_project_e;
+
+// apprt.action.MoveSplit (Toastty-specific)
+typedef enum {
+  GHOSTTY_MOVE_SPLIT_PREVIOUS,
+  GHOSTTY_MOVE_SPLIT_NEXT,
+  GHOSTTY_MOVE_SPLIT_UP,
+  GHOSTTY_MOVE_SPLIT_LEFT,
+  GHOSTTY_MOVE_SPLIT_DOWN,
+  GHOSTTY_MOVE_SPLIT_RIGHT,
+} ghostty_action_move_split_e;
+
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
@@ -1009,6 +1026,10 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+  GHOSTTY_ACTION_NEW_PROJECT,
+  GHOSTTY_ACTION_GOTO_PROJECT,
+  GHOSTTY_ACTION_TOGGLE_PROJECT_SIDEBAR,
+  GHOSTTY_ACTION_MOVE_SPLIT,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1052,6 +1073,8 @@ typedef union {
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
   ghostty_action_open_config_e open_config;
+  ghostty_action_goto_project_e goto_project;
+  ghostty_action_move_split_e move_split;
 } ghostty_action_u;
 
 typedef struct {

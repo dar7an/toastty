@@ -17,6 +17,23 @@ The Xcode scheme, project, test target, Swift module, C API, and library filenam
 retain Ghostty names to keep upstream merges manageable. The shipped app and
 executable are `Toastty.app` and `toastty`.
 
+## Build outputs
+
+The only dev build location is `macos/build/<Configuration>/Toastty.app`
+(ignored by git). Run `macos/build.nu` from the repository root — running it
+from another directory once produced a stray `macos/macos/build` copy. Do not
+keep renamed copies (e.g. `Toastty QA.app`) or per-checkout builds in
+Spotlight-indexed locations; each one shows up as another "Toastty" in
+Spotlight. Delete stale products instead of renaming them:
+
+```sh
+rm -rf macos/build  # canonical dev builds; rebuild with scripts/build.sh
+```
+
+Xcode GUI builds land under `~/Library/Developer/Xcode/DerivedData/` and also
+appear in Spotlight. Prefer `scripts/build.sh` / `macos/build.nu`, and delete
+`DerivedData/Ghostty-*/Build/Products/*/Toastty.app` if duplicates show up.
+
 ## Checks
 
 ```sh

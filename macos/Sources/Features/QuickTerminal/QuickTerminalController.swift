@@ -460,10 +460,26 @@ class QuickTerminalController: BaseTerminalController {
         }
 
         // Run the animation that moves our window into the proper place and makes
-        // it visible.
+        // it visible. Entry uses ease-out; Reduce Motion skips the slide.
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            position.setFinal(
+                in: window,
+                on: screen,
+                terminalSize: derivedConfig.quickTerminalSize,
+                closedFrame: closedFrame)
+            window.makeKeyAndOrderFront(nil)
+            window.level = .floating
+            self.syncAppearance()
+            self.makeWindowKey(window)
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            return
+        }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
-            context.timingFunction = .init(name: .easeIn)
+            context.timingFunction = .init(name: .easeOut)
             position.setFinal(
                 in: window.animator(),
                 on: screen,
@@ -584,6 +600,13 @@ class QuickTerminalController: BaseTerminalController {
         // and lets us render off screen.
         window.level = .popUpMenu
 
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            window.orderOut(self)
+            if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
+                NSApp.hide(nil)
+            }
+            return
+        }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)

@@ -57,7 +57,7 @@ struct SurfaceProgressBar: View {
                             width: geometry.size.width * CGFloat(progress) / 100,
                             height: geometry.size.height
                         )
-                        .animation(.easeInOut(duration: 0.2), value: progress)
+                        .motionAnimation(.easeInOut(duration: 0.2), value: progress)
                 } else {
                     // Indeterminate states without specific progress - all use bouncing animation
                     BouncingProgressBar(color: color)
@@ -78,6 +78,7 @@ struct SurfaceProgressBar: View {
 private struct BouncingProgressBar: View {
     let color: Color
     @State private var position: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let barWidthRatio: CGFloat = 0.25
 
@@ -97,6 +98,10 @@ private struct BouncingProgressBar: View {
             }
         }
         .onAppear {
+            guard !reduceMotion else {
+                position = 0.5
+                return
+            }
             withAnimation(
                 .easeInOut(duration: 1.2)
                 .repeatForever(autoreverses: true)
@@ -107,6 +112,7 @@ private struct BouncingProgressBar: View {
         .onDisappear {
             position = 0
         }
+        .accessibilityHidden(true)
     }
 }
 

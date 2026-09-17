@@ -411,7 +411,7 @@ extension Ghostty {
         }
 
         var macosCustomIcon: String {
-            let defaultValue = NSString("~/.config/ghostty/Ghostty.icns").expandingTildeInPath
+            let defaultValue = NSString("~/.config/toastty/Toastty.icns").expandingTildeInPath
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-custom-icon"
@@ -514,26 +514,6 @@ extension Ghostty {
             if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
                 let bg_key = "background"
                 _ = ghostty_config_get(config, &color, bg_key, UInt(bg_key.lengthOfBytes(using: .utf8)))
-            }
-
-            return .init(
-                red: Double(color.r) / 255,
-                green: Double(color.g) / 255,
-                blue: Double(color.b) / 255
-            )
-        }
-
-        var splitDividerColor: Color {
-            let backgroundColor = NSColor(backgroundColor)
-            let isLightBackground = backgroundColor.isLightColor
-            let newColor = isLightBackground ? backgroundColor.darken(by: 0.08) : backgroundColor.darken(by: 0.4)
-
-            guard let config = self.config else { return Color(newColor) }
-
-            var color: ghostty_config_color_s = .init()
-            let key = "split-divider-color"
-            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
-                return Color(newColor)
             }
 
             return .init(

@@ -73,7 +73,7 @@ enum QuickTerminalPosition: String {
         case .bottom:
             return .init(
                 x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
-                y: -window.frame.height)
+                y: screen.visibleFrame.minY - window.frame.height)
 
         case .left:
             return .init(
@@ -86,7 +86,9 @@ enum QuickTerminalPosition: String {
                 y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
 
         case .center:
-            return .init(x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2), y: screen.visibleFrame.height - window.frame.width)
+            return .init(
+                x: round(screen.visibleFrame.origin.x + (screen.visibleFrame.width - window.frame.width) / 2),
+                y: round(screen.visibleFrame.origin.y + (screen.visibleFrame.height - window.frame.height) / 2))
         }
     }
 

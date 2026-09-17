@@ -17,10 +17,15 @@ tabs and remembers the selected tab. Switching projects keeps their shells alive
 - Right-click a tab to rename it, close tabs, split its terminal, or assign a color.
   The circle with a red horizontal line clears the color.
 - Closing a project closes its tabs. Confirm any warning about running processes.
+- `macos-titlebar-style` interacts with the project workspace: `native`,
+  `transparent`, and `tabs` share the project toolbar and tab strip (every
+  project window uses the standard frame; nibs still differ for non-sidebar
+  windows). `hidden` or `macos-tabs-sidebar = false` disables the project
+  sidebar and falls back to the native window-tab layout.
 
 ## Terminal panes
 
-Right-click a terminal or tab for **Split** and **Arrange Pane** controls. Split
+Right-click a terminal or tab for **Split** and **Arrange Splits** controls. Split
 left, right, above, or below; zoom one pane; restore all panes; or equalize sizes.
 Drag the small handle at a pane's top edge onto another pane's edge to move it.
 The outline previews the drop location before you release.
@@ -49,10 +54,18 @@ the terminal configuration directory is shared by Toastty builds.
 
 ## Updates and support
 
-**Check for Updates** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
+**View Toastty Releases…** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
 Automatic installation is disabled until Toastty has a signed update channel.
 Crash reporting is disabled by default in Toastty builds.
 Toastty never installs an update from Ghostty's appcast.
 
 Report Toastty issues to [dar7an/toastty](https://github.com/dar7an/toastty/issues).
 Do not send fork-specific support requests to Ghostty maintainers.
+
+## Project shortcuts
+
+- ⌘P creates a project; ⌘B shows or hides the sidebar.
+- ⌃⌘Tab switches to the next project; ⇧⌃⌘Tab switches to the previous one.
+- ⌥1–⌥9 selects a project by sidebar position, clamping to the last project.
+  In Quick Terminal or windows without project workspaces, these keys retain
+  their normal terminal input behavior.

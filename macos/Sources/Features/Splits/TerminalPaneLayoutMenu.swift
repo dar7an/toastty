@@ -1,7 +1,11 @@
 import AppKit
 import GhosttyKit
 
-/// Native menus with evenly spaced pane buttons, tooltips and VoiceOver.
+/// Native menus with evenly spaced split buttons, tooltips and VoiceOver.
+///
+/// Terminology: Toastty uses "split" for both the action and the resulting
+/// terminal unit (matching `toggle_split_zoom`, `equalize_splits`, and the
+/// Main Menu). "Pane" is legacy and must not appear in user-visible copy.
 enum TerminalPaneLayoutMenu {
     static func append(to menu: NSMenu, surface: Ghostty.SurfaceView) {
         let controller = BaseTerminalController.controller(owning: surface)
@@ -10,10 +14,10 @@ enum TerminalPaneLayoutMenu {
     }
 
     /// Construct the native menu separately from live terminal ownership.
-    /// The target is a pane responder; its selectors stay explicit so actions
-    /// never fall through to whichever other pane currently has focus.
+    /// The target is a split responder; its selectors stay explicit so actions
+    /// never fall through to whichever other split currently has focus.
     static func append(to menu: NSMenu, target: NSObject, hasSplits: Bool, isZoomed: Bool) {
-        appendRow(to: menu, title: "Split Pane", target: target, actions: [
+        appendRow(to: menu, title: "Split", target: target, actions: [
             ("Split Left", "rectangle.lefthalf.inset.filled", #selector(Ghostty.SurfaceView.splitLeft(_:))),
             ("Split Right", "rectangle.righthalf.inset.filled", #selector(Ghostty.SurfaceView.splitRight(_:))),
             ("Split Up", "rectangle.tophalf.inset.filled", #selector(Ghostty.SurfaceView.splitUp(_:))),
@@ -21,11 +25,20 @@ enum TerminalPaneLayoutMenu {
         ])
 
         guard hasSplits else { return }
-        appendRow(to: menu, title: "Arrange Panes", target: target, actions: [
-            (isZoomed ? "Show All Panes" : "Zoom Pane",
+        appendRow(to: menu, title: "Arrange Splits", target: target, actions: [
+            (isZoomed ? "Show All Splits" : "Zoom Split",
              isZoomed ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
              #selector(Ghostty.SurfaceView.zoomPaneFromMenu(_:))),
-            ("Equalize Panes", "rectangle.split.2x2", #selector(Ghostty.SurfaceView.equalizePanesFromMenu(_:)))
+            ("Equalize Splits", "rectangle.split.2x2", #selector(Ghostty.SurfaceView.equalizePanesFromMenu(_:)))
+        ])
+        appendRow(to: menu, title: "Move Split", target: target, actions: [
+            ("Move Left", "arrow.left", #selector(Ghostty.SurfaceView.moveSplitLeftFromMenu(_:))),
+            ("Move Right", "arrow.right", #selector(Ghostty.SurfaceView.moveSplitRightFromMenu(_:))),
+            ("Move Up", "arrow.up", #selector(Ghostty.SurfaceView.moveSplitUpFromMenu(_:))),
+            ("Move Down", "arrow.down", #selector(Ghostty.SurfaceView.moveSplitDownFromMenu(_:)))
+        ])
+        appendRow(to: menu, title: "Close Split", target: target, actions: [
+            ("Close Split", "xmark", #selector(Ghostty.SurfaceView.closeSplitFromMenu(_:)))
         ])
     }
 
@@ -38,7 +51,7 @@ enum TerminalPaneLayoutMenu {
         let row = NSMenu(title: title)
         for action in actions {
             let item = NSMenuItem(title: action.title, action: action.selector, keyEquivalent: "")
-            // Bind to the clicked pane, even when another pane has focus.
+            // Bind to the clicked split, even when another split has focus.
             item.target = target
             item.toolTip = action.title
             item.image = NSImage(systemSymbolName: action.symbol, accessibilityDescription: action.title)?
@@ -177,5 +190,30 @@ extension Ghostty.SurfaceView {
     @objc func equalizePanesFromMenu(_ sender: Any?) {
         guard let surface else { return }
         ghostty_surface_split_equalize(surface)
+    }
+
+    @objc func moveSplitLeftFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "left") }
+
+    @objc func moveSplitRightFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "right") }
+
+    @objc func moveSplitUpFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "up") }
+
+    @objc func moveSplitDownFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "down") }
+
+    private func moveSplitFromMenu(direction: String) {
+        guard let surface else { return }
+        let action = "move_split:\(direction)"
+        _ = ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    /// Closes the clicked split, even when another split has focus.
+    ///
+    /// This is the same request-close cycle as the `close_surface` binding
+    /// (File→Close, ⌘W): the core decides whether confirmation is needed
+    /// (`confirm-close-surface`) and the owning controller removes only this
+    /// pane's node through its confirming `closeSurface` path.
+    @objc func closeSplitFromMenu(_ sender: Any?) {
+        guard let surface else { return }
+        ghostty_surface_request_close(surface)
     }
 }

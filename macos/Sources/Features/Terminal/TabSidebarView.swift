@@ -193,15 +193,11 @@ final class TabSidebarModel: ObservableObject {
 
     var visibleTabs: [Row] { rows.filter { $0.project.id == selectedProjectID } }
 
-    func selectProject(_ id: UUID?) {
+    func selectProject(_ id: UUID?, stealFocus: Bool = true) {
         guard let id else { return }
         let tabs = rows.filter { $0.project.id == id }
-        let remembered = tabs.first { $0.id == selectedTabs[id] }
-            ?? tabs.first { row in
-                guard let controller = row.window.windowController as? TerminalController else { return false }
-                return controller.projectTabID == controller.project.selectedTabID
-            }
-        select(remembered?.id ?? tabs.first?.id)
+        let remembered = restoreTargetRow(for: id)
+        select(remembered?.id ?? tabs.first?.id, stealFocus: stealFocus)
     }
 
     func refresh() { rebuildRows() }
@@ -236,18 +232,21 @@ final class TabSidebarModel: ObservableObject {
     func commitRename() {
         guard let id = editingProjectID else { return }
         let trimmed = editingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            cancelRename()
-            return
+        // Blank restores the default name, matching tab rename behavior
+        // (BaseTerminalController.promptTabTitle clears the override).
+        let newOverride: String? = if trimmed.isEmpty {
+            nil
+        } else {
+            trimmed
         }
         for window in tabGroup?.windows ?? [] {
             guard let controller = window.windowController as? TerminalController,
                   controller.project.id == id else { continue }
-            if trimmed == controller.project.automaticName {
-                // Renaming to the derived name is the same as no override.
+            if newOverride == nil || newOverride == controller.project.automaticName {
+                // Blank or renaming to the derived name is the same as no override.
                 controller.project.nameOverride = nil
             } else {
-                controller.project.nameOverride = trimmed
+                controller.project.nameOverride = newOverride
             }
         }
         editingProjectID = nil
@@ -263,10 +262,31 @@ final class TabSidebarModel: ObservableObject {
         restoreTerminalFocus()
     }
 
-    /// Abbreviated directory for a project: fixed creation dir, else first tab's pwd.
+    /// Abbreviated directory for a project: the live pwd of its selected
+    /// tab's focused surface, else any tab's live pwd, else the fixed
+    /// creation directory for projects whose shells have not reported yet.
+    /// The stored `project.directory` stays the identity anchor — this only
+    /// chooses which path the row displays.
     func directory(for project: TerminalProject) -> String? {
-        if let dir = project.abbreviatedDirectory { return dir }
-        return rows.first(where: { $0.project.id == project.id })?.pwd
+        let tabs = rows.filter { $0.project.id == project.id }
+        // Resolve the tab the project would restore to, matching
+        // `selectProject`: remembered selection, then `selectedTabID`.
+        let selected = restoreTargetRow(for: project.id)
+        return selected?.pwd
+            ?? tabs.first(where: { $0.pwd != nil })?.pwd
+            ?? project.abbreviatedDirectory
+    }
+
+    /// The tab a project would restore to: the remembered selection, else
+    /// the controller-marked selected tab. Shared by selection, display,
+    /// and context-menu resolution so the three can never disagree.
+    func restoreTargetRow(for projectID: UUID) -> Row? {
+        let tabs = rows.filter { $0.project.id == projectID }
+        return tabs.first { $0.id == selectedTabs[projectID] }
+            ?? tabs.first { row in
+                guard let controller = row.window.windowController as? TerminalController else { return false }
+                return controller.projectTabID == controller.project.selectedTabID
+            }
     }
 
     private func restoreTerminalFocus() {
@@ -363,7 +383,7 @@ final class TabSidebarModel: ObservableObject {
 
     // MARK: Selection
 
-    func select(_ id: ObjectIdentifier?) {
+    func select(_ id: ObjectIdentifier?, stealFocus: Bool = true) {
         guard let id,
               let tabGroup,
               let row = rows.first(where: { $0.id == id }),
@@ -373,6 +393,17 @@ final class TabSidebarModel: ObservableObject {
             tabGroup.selectedWindow = row.window
         }
         syncSelection()
+
+        // Keyboard navigation must not yank focus after the first step:
+        // sidebar click still focuses the terminal, but arrow-key nav keeps
+        // focus in the list so repeated presses keep working.
+        guard stealFocus else { return }
+        if NSApp.currentEvent?.type == .keyDown { return }
+        if let firstResponder = row.window.firstResponder, firstResponder != row.window {
+            // If focus is already in a text field (rename editor) or another
+            // control, don't steal it back to the terminal.
+            if firstResponder is NSTextView || firstResponder is NSTextField { return }
+        }
 
         // Return typing focus to the terminal so the list doesn't keep it.
         let controller = row.window.windowController as? TerminalController
@@ -537,25 +568,50 @@ struct ProjectSidebarListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
-                ForEach(model.projects) { project in
-                    projectRow(project)
-                        .tag(project.id)
-                        .help(projectHelp(project))
-                        .accessibilityLabel(projectAccessibilityLabel(project))
-                        .contextMenu {
-                            Button("Rename Project…") { model.beginRename(projectID: project.id) }
-                            Button("Close Project") { projectController(project)?.closeProject() }
-                            Divider()
-                            Button("New Project") { projectController(project)?.newProject(nil) }
-                        }
+            if model.projects.isEmpty {
+                // Empty state for the 220pt sidebar: first-run hint that
+                // wires directly to project creation.
+                VStack(spacing: 8) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
+                    Text("No Projects")
+                        .font(.headline)
+                    Text("Projects keep related tabs together.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("New Project") {
+                        controller.promptProjectName()
+                    }
+                    .buttonStyle(.link)
+                    .accessibilityLabel("Create a new project")
                 }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .padding(.top, 8)
-            .contextMenu {
-                Button("New Project") { controller.newProject(nil) }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("No projects. Create a new project to organize tabs.")
+            } else {
+                List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
+                    ForEach(model.projects) { project in
+                        projectRow(project)
+                            .tag(project.id)
+                            .help(projectHelp(project))
+                            .accessibilityLabel(projectAccessibilityLabel(project))
+                            .contextMenu {
+                                Button("Rename Project…") { model.beginRename(projectID: project.id) }
+                                Button("Close Project") { projectController(project)?.closeProject() }
+                                Divider()
+                                Button("New Project") { projectController(project)?.newProject(nil) }
+                            }
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .padding(.top, 8)
+                .contextMenu {
+                    Button("New Project") { controller.newProject(nil) }
+                }
             }
         }
         // Extend the sidebar's one material through the traffic-light and
@@ -566,8 +622,11 @@ struct ProjectSidebarListView: View {
     }
 
         private func projectController(_ project: TerminalProject) -> TerminalController? {
-            model.selectProject(project.id)
-            return model.rows.first(where: { $0.id == model.selection })?.window.windowController as? TerminalController
+            // Resolve the clicked project without touching global selection,
+            // using the same restore target as selection and display.
+            let row = model.restoreTargetRow(for: project.id)
+                ?? model.rows.first(where: { $0.project.id == project.id })
+            return row?.window.windowController as? TerminalController
         }
 
         private func projectRow(_ project: TerminalProject) -> some View {
@@ -625,24 +684,29 @@ struct ProjectSidebarListView: View {
             @FocusState private var focused: Bool
 
             var body: some View {
-                TextField("", text: $model.editingDraft)
+                TextField("Project name", text: $model.editingDraft, prompt: Text("Leave blank to restore the default"))
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1)
                     .focused($focused)
+                    .help("Leave blank to restore the default project name")
+                    .accessibilityLabel("Rename project")
+                    .accessibilityHint("Leave blank to restore the default project name")
                     .onSubmit { model.commitRename() }
                     .onExitCommand { model.cancelRename() }
                     .onAppear {
-                        focused = true
-                        // Select the existing name so typing replaces it.
+                        // Wait for the field to be attached and for the command
+                        // palette's query field to leave the responder chain.
                         DispatchQueue.main.async {
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
+                            guard model.editingProjectID == projectID else { return }
+                            focused = true
+                            DispatchQueue.main.async {
+                                guard model.editingProjectID == projectID else { return }
+                                (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
+                            }
                         }
                     }
                     .onChange(of: focused) { isFocused in
-                        // Clicking elsewhere commits a valid name, cancels an invalid one.
+                        // Clicking elsewhere commits; blank restores the default.
                         if !isFocused, model.editingProjectID == projectID {
                             model.commitRename()
                         }

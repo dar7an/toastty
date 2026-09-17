@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ErrorView: View {
@@ -7,13 +8,29 @@ struct ErrorView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 128, height: 128)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading) {
-                Text("Oh, no. 😭").font(.title)
-                Text("Something went fatally wrong.\nCheck the logs and restart Toastty.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Something Went Wrong").font(.title)
+                Text("Toastty encountered a fatal error and cannot continue. Restart the app and check the logs in Console.app if the problem persists.")
+                HStack(spacing: 12) {
+                    Button("Copy Diagnostics") {
+                        let details = "Toastty fatal error. App: \(Bundle.main.bundleIdentifier ?? "toastty") Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(details, forType: .string)
+                    }
+                    .accessibilityLabel("Copy diagnostics to clipboard")
+                    Button("Quit Toastty") {
+                        NSApp.terminate(nil)
+                    }
+                    .accessibilityLabel("Quit Toastty")
+                }
+                .buttonStyle(.link)
             }
         }
         .padding()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Toastty encountered a fatal error. Restart the app.")
     }
 }
 

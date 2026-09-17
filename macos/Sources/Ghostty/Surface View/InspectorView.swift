@@ -26,7 +26,7 @@ extension Ghostty {
                 if !surfaceView.inspectorVisible {
                     SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                 } else {
-                    SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
+                    SplitView(.vertical, $split, dividerColor: ghostty.config.configuredSplitDividerColor ?? ProjectChrome.separatorColor, left: {
                         SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                     }, right: {
                         InspectorViewRepresentable(surfaceView: surfaceView)
@@ -130,6 +130,11 @@ extension Ghostty {
 
             // Setup our tracking areas for mouse events
             updateTrackingAreas()
+
+            // Expose the custom Metal inspector to VoiceOver.
+            setAccessibilityLabel("Terminal inspector")
+            setAccessibilityHelp("Shows terminal internals for debugging")
+            setAccessibilityRole(.group)
 
             // Observe occlusion state to pause rendering when not visible
             NotificationCenter.default.addObserver(

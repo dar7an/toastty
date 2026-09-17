@@ -54,6 +54,18 @@ struct ClipboardConfirmationView: View {
     /// Used to track if we should rehide on disappear
     @State private var cursorHiddenCount: UInt = 0
 
+    /// True for requests initiated by the hosted application rather than the
+    /// user. Only user-initiated pastes keep confirmation as the keyboard
+    /// default; app-initiated reads and writes must fail safe.
+    private var isAppInitiated: Bool {
+        switch request {
+        case .paste:
+            return false
+        case .osc_52_read, .osc_52_write, .kitty_read, .kitty_write:
+            return true
+        }
+    }
+
     var body: some View {
         VStack {
             HStack {
@@ -87,13 +99,30 @@ struct ClipboardConfirmationView: View {
 
             HStack {
                 Spacer()
-                Button(Action.text(.cancel, request)) { onCancel() }
-                    .keyboardShortcut(.cancelAction)
-                Button(Action.text(.confirm, request)) { onPaste() }
-                    .keyboardShortcut(.defaultAction)
+                // Deny is deliberately the default action for app-initiated
+                // requests so an accidental Return press cannot disclose
+                // clipboard contents or permit a write. User-initiated pastes
+                // keep confirmation as the default.
+                if isAppInitiated {
+                    Button(Action.text(.cancel, request)) { onCancel() }
+                        .keyboardShortcut(.defaultAction)
+                    Button(Action.text(.confirm, request)) { onPaste() }
+                } else {
+                    Button(Action.text(.cancel, request)) { onCancel() }
+                        .keyboardShortcut(.cancelAction)
+                    Button(Action.text(.confirm, request)) { onPaste() }
+                        .keyboardShortcut(.defaultAction)
+                }
                 Spacer()
             }
             .padding(.bottom)
+        }
+        .onExitCommand {
+            // Hoisted to the root so Escape denies even when the Remember
+            // toggle has focus. Escape still denies app-initiated requests,
+            // where Deny owns the Return key and no longer carries the cancel
+            // shortcut.
+            if isAppInitiated { onCancel() }
         }
         .onAppear {
             // I can't find a better way to handle this. There is no API to detect

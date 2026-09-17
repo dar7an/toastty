@@ -165,6 +165,10 @@ extension Ghostty.OSSurfaceView {
         }
 
         func writePasteboardNeedle() {
+            // Avoid clobbering the shared Find pasteboard with empty or
+            // unchanged values during live typing.
+            guard !needle.text.isEmpty else { return }
+            guard pasteboard.string != needle.text else { return }
             pasteboard.string = needle.text
         }
     }

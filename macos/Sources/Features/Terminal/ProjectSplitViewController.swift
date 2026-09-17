@@ -266,7 +266,7 @@ final class ProjectSplitViewController: NSSplitViewController {
 /// instance (retained by its split controller) with autosave disabled, so
 /// configuration never propagates to unrelated windows.
 final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
-    static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.ghostty.projectTabStrip")
+    static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.projectTabStrip")
     static let newTabItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.newTab")
 
     private weak var splitController: ProjectSplitViewController?
@@ -319,7 +319,11 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "New Tab"
             item.paletteLabel = "New Tab"
-            item.toolTip = "New Tab (⌘T)"
+            if let shortcut = terminalController?.ghostty.config.keyboardShortcut(for: "new_tab") {
+                item.toolTip = "New Tab (\(shortcut))"
+            } else {
+                item.toolTip = "New Tab"
+            }
             item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
             item.target = terminalController
             item.action = #selector(TerminalController.newTab(_:))
@@ -367,9 +371,14 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
     private func tabStripView() -> some View {
         Group {
             if let model = tabStripModel {
+                let controller = terminalController
                 ProjectTabStripView(
                     model: model,
-                    onSelect: { [weak model] in model?.select($0) })
+                    onSelect: { [weak model] in model?.select($0) },
+                    shortcutHint: { [weak controller] index in
+                        guard index < 9 else { return nil }
+                        return controller?.ghostty.config.keyboardShortcut(for: "goto_tab:\(index + 1)")?.description
+                    })
             } else {
                 EmptyView()
             }

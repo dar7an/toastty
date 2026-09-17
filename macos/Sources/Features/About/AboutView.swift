@@ -61,7 +61,7 @@ struct AboutView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .font(.caption)
-                        .tint(.secondary)
+                        .foregroundStyle(.secondary)
                         .opacity(0.8)
                 }
                 .textSelection(.enabled)
@@ -113,7 +113,7 @@ struct AboutView: View {
                     Text(copy)
                         .font(.caption)
                         .textSelection(.enabled)
-                        .tint(.secondary)
+                        .foregroundStyle(.secondary)
                         .opacity(0.8)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -143,7 +143,7 @@ struct AboutView: View {
             Text(text)
                 .frame(width: 125, alignment: .leading)
                 .padding(.leading, 2)
-                .tint(.secondary)
+                .foregroundStyle(.secondary)
                 .opacity(0.8)
                 .monospaced()
         }

@@ -147,6 +147,12 @@ final class TabTitleEditor: NSObject, NSTextFieldDelegate {
               delegate?.tabTitleEditor(self, canRenameTabFor: targetWindow) == true
         else { return false }
 
+        // The native tab bar is hidden for project workspaces (and can be
+        // transiently hidden elsewhere). Inline editing a hidden button would
+        // be invisible, so decline and let the caller fall back to the
+        // prompt-based rename.
+        guard !tabButton.isHiddenOrHasHiddenAncestor else { return false }
+
         // If we have a pending edit, we need to cancel it because we got
         // called to start edit explicitly.
         pendingEditWorkItem?.cancel()

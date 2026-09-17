@@ -627,6 +627,18 @@ extension Ghostty {
             case GHOSTTY_ACTION_GOTO_TAB:
                 return gotoTab(app, target: target, tab: action.action.goto_tab)
 
+            case GHOSTTY_ACTION_NEW_PROJECT:
+                return newProject(app, target: target)
+
+            case GHOSTTY_ACTION_GOTO_PROJECT:
+                return gotoProject(app, target: target, project: action.action.goto_project)
+
+            case GHOSTTY_ACTION_TOGGLE_PROJECT_SIDEBAR:
+                return toggleProjectSidebar(app, target: target)
+
+            case GHOSTTY_ACTION_MOVE_SPLIT:
+                return moveSplit(app, target: target, direction: action.action.move_split)
+
             case GHOSTTY_ACTION_GOTO_SPLIT:
                 return gotoSplit(app, target: target, direction: action.action.goto_split)
 
@@ -831,32 +843,55 @@ extension Ghostty {
 
             switch action.kind {
             case .text:
-                // Open with the default editor for `*.ghostty` file or just system text editor
-                let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension) ?? NSWorkspace.shared.defaultTextEditor
-                if let textEditor = editor {
-                    NSWorkspace.shared.open([url], withApplicationAt: textEditor, configuration: NSWorkspace.OpenConfiguration())
-                    return true
-                }
+                // Editors are still a Launch Services dispatch, so the trust
+                // policy must approve the target first (e.g. the default
+                // handler for `.command` is Terminal, which would execute it).
+                return openTextURL(url)
 
-            case .html:
-                // The extension will be HTML and we do the right thing automatically.
-                break
-
-            case .unknown:
-                break
+            case .html, .unknown:
+                // Route through the same trust policy as OSC 8 links so unsafe
+                // local files and deceptive targets cannot reach Launch
+                // Services directly.
+                return openUntrustedURL(url.absoluteString)
 
             case .osc8:
                 assertionFailure("OSC 8 URLs must use the safe-opening policy")
                 return true
             }
+        }
 
-            // Open with the default application for the URL
-            NSWorkspace.shared.open(url)
-            return true
+        /// Open a `.text` URL in a text editor, gated by the untrusted-URL
+        /// trust policy. Allowed targets keep the editor-open behavior; every
+        /// other decision falls through to the generic confirm-or-block flow
+        /// so `isUnsafeFile` is always consulted for local files.
+        private static func openTextURL(_ url: URL) -> Bool {
+            switch UntrustedURL(url.absoluteString).decision {
+            case .allow(let safeURL):
+                // Open with the default editor for the file extension, or the
+                // system text editor. safeURL is the canonicalized target the
+                // policy approved, so the displayed and opened targets agree.
+                let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: safeURL.pathExtension)
+                    ?? NSWorkspace.shared.defaultTextEditor
+                if let textEditor = editor {
+                    NSWorkspace.shared.open(
+                        [safeURL],
+                        withApplicationAt: textEditor,
+                        configuration: NSWorkspace.OpenConfiguration())
+                    return true
+                }
+                return openUntrustedURL(safeURL.absoluteString)
+
+            case .confirm, .deny:
+                return openUntrustedURL(url.absoluteString)
+            }
         }
 
         private static func openUntrustedURL(_ value: String) -> Bool {
             let target = UntrustedURL(value)
+            // Capture the source window now; the alert itself is deferred to
+            // the next main-loop turn (renderer mutex), at which point the
+            // key window may have changed.
+            let owner = NSApp.keyWindow ?? NSApp.mainWindow
             switch target.decision {
             case .allow(let url):
                 _ = NSWorkspace.shared.open(url)
@@ -864,17 +899,19 @@ extension Ghostty {
             case .confirm(let url):
                 UntrustedURLAlert.presentConfirmation(
                     for: url,
-                    displayString: target.displayString
+                    displayString: target.displayString,
+                    owner: owner
                 )
 
             case .deny(let reason):
                 UntrustedURLAlert.presentBlock(
                     reason: reason,
-                    displayString: target.displayString
+                    displayString: target.displayString,
+                    owner: owner
                 )
             }
 
-            // Always report OSC 8 actions as handled. Returning false would
+            // Always report the action as handled. Returning false would
             // cause the core to retry with the unrestricted fallback opener.
             return true
         }
@@ -1338,6 +1375,136 @@ extension Ghostty {
                 return true
         }
 
+        private static func newProject(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("new project does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // Unsupported windows must decline conditional project bindings.
+                    guard let controller = surfaceView.window?.windowController as? TerminalController,
+                          controller.usesProjectSidebar else { return false }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyNewProject,
+                        object: surfaceView
+                    )
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func gotoProject(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            project: ghostty_action_goto_project_e) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("goto project does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // Unsupported windows must decline conditional project bindings.
+                    guard let controller = surfaceView.window?.windowController as? TerminalController,
+                          controller.usesProjectSidebar else { return false }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyGotoProject,
+                        object: surfaceView,
+                        userInfo: [
+                            Notification.GotoProjectKey: project,
+                        ]
+                    )
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func toggleProjectSidebar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("toggle project sidebar does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // Unsupported windows must decline conditional project bindings.
+                    guard let controller = surfaceView.window?.windowController as? TerminalController,
+                          controller.usesProjectSidebar else { return false }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyToggleProjectSidebar,
+                        object: surfaceView
+                    )
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func moveSplit(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_move_split_e) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("move split does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    // If the window has no splits, the action is not performable
+                    guard controller.surfaceTree.isSplit else { return false }
+
+                    guard let splitDirection = SplitFocusDirection.from(moveSplit: direction) else { return false }
+
+                    guard let targetNode = controller.surfaceTree.root?.node(view: surfaceView) else { return false }
+
+                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
+                        return false
+                    }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyMoveSplit,
+                        object: surfaceView,
+                        userInfo: [
+                            Notification.MoveSplitDirectionKey: splitDirection as Any,
+                        ]
+                    )
+
+                    return true
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+        }
+
         private static func gotoSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1569,7 +1736,7 @@ extension Ghostty {
                 let panel = NSSavePanel()
                 panel.allowedContentTypes = [.plainText]
                 panel.canCreateDirectories = true
-                panel.nameFieldStringValue = "ghostty-terminal-io.txt"
+                panel.nameFieldStringValue = "toastty-terminal-io.txt"
                 panel.beginSheetModal(for: window) { response in
                     guard response == .OK, let url = panel.url else { return }
                     do {

@@ -126,16 +126,20 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 }
             }
 
-            // Show update information above all else.
+            // Show update information above all else. Gated until Toastty
+            // owns a signed update feed; the updater is never started.
+            #if DEBUG
             if viewModel.updateOverlayIsVisible {
                 UpdateOverlay()
             }
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
 }
 
+#if DEBUG
 private struct UpdateOverlay: View {
     var body: some View {
         if let appDelegate = NSApp.delegate as? AppDelegate {
@@ -152,38 +156,47 @@ private struct UpdateOverlay: View {
         }
     }
 }
+#endif
 
 struct DebugBuildWarningView: View {
     @State private var isPopover = false
 
     var body: some View {
-        HStack {
-            Spacer()
+        Button {
+            isPopover = true
+        } label: {
+            HStack {
+                Spacer()
 
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.yellow)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.yellow)
+                    .accessibilityHidden(true)
 
-            Text("You're running a debug build of Toastty! Performance will be degraded.")
-                .padding(.all, 8)
-                .popover(isPresented: $isPopover, arrowEdge: .bottom) {
-                    Text("""
-                    Debug builds of Ghostty are very slow and you may experience
-                    performance problems. Debug builds are only recommended during
-                    development.
-                    """)
-                    .padding(.all)
-                }
+                Text("You're running a debug build of Toastty! Performance will be degraded.")
+                    .padding(.all, 8)
 
-            Spacer()
+                Spacer()
+            }
         }
+        .buttonStyle(.plain)
         .background(Color(.windowBackgroundColor))
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
         .accessibilityLabel("Debug build warning")
-        .accessibilityValue("Debug builds of Ghostty are very slow and you may experience performance problems. Debug builds are only recommended during development.")
-        .accessibilityAddTraits(.isStaticText)
-        .onTapGesture {
+        .accessibilityValue("Debug builds of Toastty are very slow and you may experience performance problems. Debug builds are only recommended during development.")
+        .accessibilityHint("Shows debug build details")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
             isPopover = true
+        }
+        .help("Debug build warning. Show details.")
+        .popover(isPresented: $isPopover, arrowEdge: .bottom) {
+            Text("""
+            Debug builds of Toastty are very slow and you may experience
+            performance problems. Debug builds are only recommended during
+            development.
+            """)
+            .padding(.all)
+            .accessibilityLabel("Debug builds are slow and recommended only during development.")
         }
     }
 }

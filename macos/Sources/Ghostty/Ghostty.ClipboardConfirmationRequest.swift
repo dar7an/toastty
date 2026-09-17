@@ -26,7 +26,12 @@ extension Ghostty {
         /// request. The name is the requesting program's human friendly
         /// name, when the protocol carries one.
         func text(name: String? = nil) -> String {
-            let program = name.map { "\"\($0)\"" } ?? "An application"
+            // The name arrives as a C string supplied by the hosted
+            // application, so interpolate a display-safe derivative rather
+            // than the raw value: embedded newlines or controls could
+            // otherwise forge additional prompt lines.
+            let sanitized = name.map { Self.displayProgramName($0) }.flatMap { $0.isEmpty ? nil : $0 }
+            let program = sanitized.map { "\"\($0)\"" } ?? "An application"
             switch self {
             case .paste:
                 return """
@@ -43,6 +48,38 @@ extension Ghostty {
                 The content to write is shown below.
                 """
             }
+        }
+
+        /// A display-safe derivative of a protocol-supplied program name for
+        /// interpolation into prompt text. Control and formatting characters
+        /// are neutralized so the name always renders as a single inert line,
+        /// and long values are truncated so a hostile peer cannot flood the
+        /// dialog. The result is only ever shown to the user, never used as
+        /// an identifier.
+        private static func displayProgramName(_ name: String, maxLength: Int = 64) -> String {
+            var result = String()
+            result.reserveCapacity(min(name.count, maxLength))
+            var count = 0
+            for scalar in name.unicodeScalars {
+                guard count < maxLength else { break }
+                switch scalar.value {
+                case 0x00...0x1F, 0x7F...0x9F,
+                    0x061C, 0x200B...0x200F, 0x202A...0x202E, 0x2060...0x2069,
+                    0x2028...0x2029, 0xFEFF:
+                    // Render unsafe scalars visibly so tampering cannot hide
+                    // in zero-width text or break out into forged lines.
+                    result += "\u{FFFD}"
+                case 0x22:
+                    // The name is wrapped in double quotes at the call site;
+                    // neutralize an embedded quote so it cannot close that
+                    // context.
+                    result += "'"
+                default:
+                    result.unicodeScalars.append(scalar)
+                }
+                count += 1
+            }
+            return result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         static func from(request: ghostty_clipboard_request_e) -> ClipboardRequest? {

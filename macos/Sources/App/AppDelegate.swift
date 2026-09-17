@@ -28,6 +28,8 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuNewWindow: NSMenuItem?
     @IBOutlet private var menuNewTab: NSMenuItem?
+    @IBOutlet private var menuNewProject: NSMenuItem?
+    @IBOutlet private var menuToggleProjectSidebar: NSMenuItem?
     @IBOutlet private var menuSplitRight: NSMenuItem?
     @IBOutlet private var menuSplitLeft: NSMenuItem?
     @IBOutlet private var menuSplitDown: NSMenuItem?
@@ -780,6 +782,10 @@ class AppDelegate: NSObject,
         // explicitly false (NO), auto-updates are disabled. Otherwise, we use the behavior
         // defined by our "auto-update" configuration (if set) or fall back to Sparkle
         // user-based defaults.
+        //
+        // NOTE: Toastty has no signed appcast yet, so startUpdater() never starts
+        // the updater. These flags are stored for a future feed and have no effect.
+        Ghostty.logger.info("skipping auto-update sync: no signed appcast configured")
         if Bundle.main.infoDictionary?["SUEnableAutomaticChecks"] as? Bool == false {
             updateController.updater.automaticallyChecksForUpdates = false
             updateController.updater.automaticallyDownloadsUpdates = false
@@ -923,6 +929,16 @@ class AppDelegate: NSObject,
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
         for c in TerminalController.all {
             for view in c.surfaceTree where view.id == uuid {
+                return view
+            }
+        }
+
+        // The quick terminal owns its surfaces outside TerminalController.all,
+        // so scan it too (without initializing it as a side effect). Both
+        // callers — notification presentation and user-notification handling —
+        // only need the surface and its window, which is valid for QT surfaces.
+        if quickControllerInitialized {
+            for view in quickController.surfaceTree where view.id == uuid {
                 return view
             }
         }
@@ -1166,6 +1182,8 @@ extension AppDelegate {
 
         syncMenuShortcut(config, action: "new_window", menuItem: self.menuNewWindow)
         syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+        syncMenuShortcut(config, action: "new_project", menuItem: self.menuNewProject)
+        syncMenuShortcut(config, action: "toggle_project_sidebar", menuItem: self.menuToggleProjectSidebar)
         syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
         syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
         syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
@@ -1334,7 +1352,7 @@ extension AppDelegate {
                 let response = await controllersNeedConfirmation[0].confirmCloseAsync(
                     messageText: "Quit Toastty?",
                     informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
+                    confirmButtonTitle: "Quit",
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {
@@ -1347,7 +1365,8 @@ extension AppDelegate {
             return .terminateLater
         } else {
             let alert = NSAlert.reviewWindowsAlert(
-                messageText: "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?"
+                messageText: "You have \(controllersNeedConfirmation.count) windows with running processes. Do you want to review these windows before quitting?",
+                terminateNowButtonTitle: "Quit"
             )
 
             switch alert.runModal() {
@@ -1368,7 +1387,7 @@ extension AppDelegate {
                 let response = await controller.confirmCloseAsync(
                     messageText: "Quit Toastty?",
                     informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
+                    confirmButtonTitle: "Quit",
                 )
 
                 if [.OK, .alertFirstButtonReturn].contains(response) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UserNotifications
 import GhosttyKit
@@ -178,18 +179,24 @@ extension Ghostty {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 128, height: 128)
+                    .accessibilityHidden(true)
 
-                VStack(alignment: .leading) {
-                    Text("Oh, no. 😭").font(.title)
-                    Text("""
-                        The renderer has failed. This is usually due to exhausting
-                        available GPU memory. Please free up available resources.
-                        """.replacingOccurrences(of: "\n", with: " ")
-                    )
-                    .frame(maxWidth: 350)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Renderer Unavailable").font(.title)
+                    Text("The terminal renderer stopped unexpectedly, often due to low GPU memory. Free up resources, then restart Toastty. Details are available in the system logs.")
+                        .frame(maxWidth: 350)
+                    Button("Copy Details") {
+                        let details = "Toastty renderer failure. Free GPU memory and restart. App: \(Bundle.main.bundleIdentifier ?? "toastty")"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(details, forType: .string)
+                    }
+                    .buttonStyle(.link)
+                    .accessibilityLabel("Copy renderer failure details")
                 }
             }
             .padding()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Renderer unavailable. Free up resources, then restart Toastty.")
         }
     }
 
@@ -200,18 +207,24 @@ extension Ghostty {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 128, height: 128)
+                    .accessibilityHidden(true)
 
-                VStack(alignment: .leading) {
-                    Text("Oh, no. 😭").font(.title)
-                    Text("""
-                        The terminal failed to initialize. Please check the logs for
-                        more information. This is usually a bug.
-                        """.replacingOccurrences(of: "\n", with: " ")
-                    )
-                    .frame(maxWidth: 350)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Terminal Failed to Start").font(.title)
+                    Text("The terminal could not be initialized. This is usually a bug. Restart Toastty and check the logs in Console.app for details.")
+                        .frame(maxWidth: 350)
+                    Button("Copy Details") {
+                        let details = "Toastty terminal initialization failure. Restart and check Console.app logs. App: \(Bundle.main.bundleIdentifier ?? "toastty")"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(details, forType: .string)
+                    }
+                    .buttonStyle(.link)
+                    .accessibilityLabel("Copy initialization failure details")
                 }
             }
             .padding()
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Terminal failed to start. Restart Toastty and check the logs.")
         }
     }
 
@@ -280,13 +293,10 @@ extension Ghostty {
 
                     Text(verbatim: "\(size.columns) ⨯ \(size.rows)")
                         .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(.background)
-                                .shadow(radius: 3)
-                        )
+                        .toasttyOverlayCard(cornerRadius: 6)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .accessibilityLabel("\(size.columns) columns by \(size.rows) rows")
 
                     if !position.right() {
                         Spacer()
@@ -331,6 +341,7 @@ extension Ghostty {
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
         @FocusState private var isSearchFieldFocused: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         private let padding: CGFloat = 8
 
@@ -365,7 +376,10 @@ extension Ghostty {
                                 .padding(.trailing, 8)
                         }
                     }
-                    .onChange(of: searchState.needle.text) { _ in
+                    .onChange(of: searchState.needle.text) { newValue in
+                        // Don't clear the shared Find pasteboard while typing or
+                        // when the field is empty; only push non-empty needles.
+                        guard !newValue.isEmpty else { return }
                         searchState.writePasteboardNeedle()
                     }
                     .onReceive(
@@ -401,6 +415,9 @@ extension Ghostty {
                         Image(systemName: "chevron.up")
                     })
                     .buttonStyle(SearchButtonStyle())
+                    .accessibilityLabel("Next match")
+                    .accessibilityHint("Go to the next search match")
+                    .help("Next match")
 
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
@@ -410,11 +427,17 @@ extension Ghostty {
                         Image(systemName: "chevron.down")
                     })
                     .buttonStyle(SearchButtonStyle())
+                    .accessibilityLabel("Previous match")
+                    .accessibilityHint("Go to the previous search match")
+                    .help("Previous match")
 
                     Button(action: onClose) {
                         Image(systemName: "xmark")
                     }
                     .buttonStyle(SearchButtonStyle())
+                    .accessibilityLabel("Close search")
+                    .accessibilityHint("Close the search bar")
+                    .help("Close search")
                 }
                 .padding(8)
                 .background(.background)
@@ -451,7 +474,7 @@ extension Ghostty {
                                 y: centerPos.y + value.translation.height
                             )
                             let newCorner = closestCorner(to: newCenter, in: geo.size)
-                            withAnimation(.easeOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                                 corner = newCorner
                                 dragOffset = .zero
                             }
@@ -718,6 +741,18 @@ extension Ghostty {
             }
         }
 
+        private var keyStateAccessibilityLabel: String {
+            var parts: [String] = []
+            if !keyTables.isEmpty {
+                parts.append("Key tables: \(keyTables.joined(separator: ", "))")
+            }
+            if !keySequence.isEmpty {
+                let seq = keySequence.map(\.description).joined(separator: ", ")
+                parts.append("Pending key sequence: \(seq)")
+            }
+            return parts.isEmpty ? "Key state" : parts.joined(separator: ". ")
+        }
+
         var body: some View {
             Group {
                 if !keyTables.isEmpty || !keySequence.isEmpty {
@@ -726,8 +761,8 @@ extension Ghostty {
                 }
             }
             .transition(.move(edge: position.transitionEdge).combined(with: .opacity))
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyTables)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keySequence.count)
+            .motionAnimation(.spring(response: 0.3, dampingFraction: 0.8), value: keyTables)
+            .motionAnimation(.spring(response: 0.3, dampingFraction: 0.8), value: keySequence.count)
         }
 
         var content: some View {
@@ -744,8 +779,8 @@ extension Ghostty {
                         .onEnded { value in
                             isDragging = false
                             let dragThreshold: CGFloat = 50
-
-                            withAnimation(.easeOut(duration: 0.2)) {
+                            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                                 if position == .bottom && value.translation.height < -dragThreshold {
                                     position = .top
                                 } else if position == .top && value.translation.height > dragThreshold {
@@ -811,6 +846,22 @@ extension Ghostty {
             }
             .contentShape(Capsule())
             .backport.pointerStyle(.link)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(keyStateAccessibilityLabel)
+            .accessibilityHint("Shows active key tables and pending key sequences")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                isShowingPopover.toggle()
+            }
+            .focusable()
+            .backport.onKeyPress(.return) { _ in
+                isShowingPopover.toggle()
+                return .handled
+            }
+            .backport.onKeyPress(.space) { _ in
+                isShowingPopover.toggle()
+                return .handled
+            }
             .popover(isPresented: $isShowingPopover, arrowEdge: position.popoverEdge) {
                 VStack(alignment: .leading, spacing: 8) {
                     if !keyTables.isEmpty {
@@ -875,9 +926,10 @@ extension Ghostty {
         struct PendingIndicator: View {
             @State private var animationPhase: Double = 0
             let paused: Bool
+            @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
             var body: some View {
-                TimelineView(.animation(paused: paused)) { context in
+                TimelineView(.animation(paused: paused || reduceMotion)) { context in
                     HStack(spacing: 2) {
                         ForEach(0..<3, id: \.self) { index in
                             Circle()
@@ -890,9 +942,11 @@ extension Ghostty {
                         animationPhase = newValue
                     }
                 }
+                .accessibilityHidden(true)
             }
 
             private func dotOpacity(for index: Int) -> Double {
+                if reduceMotion { return index == 0 ? 1.0 : 0.4 }
                 let phase = animationPhase
                 let offset = Double(index) / 3.0
                 let wave = sin((phase + offset) * .pi * 2)
@@ -913,7 +967,8 @@ extension Ghostty {
                 )
                 .allowsHitTesting(false)
                 .opacity(bell ? 1.0 : 0.0)
-                .animation(.easeInOut(duration: 0.3), value: bell)
+                .motionAnimation(.easeInOut(duration: 0.3), value: bell)
+                .accessibilityHidden(true)
         }
     }
 
@@ -923,6 +978,7 @@ extension Ghostty {
         let highlighted: Bool
 
         @State private var borderPulse: Bool = false
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             ZStack {
@@ -958,11 +1014,16 @@ extension Ghostty {
             }
             .allowsHitTesting(false)
             .opacity(highlighted ? 1.0 : 0.0)
-            .animation(.easeOut(duration: 0.4), value: highlighted)
+            .motionAnimation(.easeOut(duration: 0.4), value: highlighted)
+            .accessibilityHidden(true)
             .onChange(of: highlighted) { newValue in
                 if newValue {
-                    withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+                    if reduceMotion {
                         borderPulse = true
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+                            borderPulse = true
+                        }
                     }
                 } else {
                     withAnimation(.easeOut(duration: 0.4)) {
@@ -989,20 +1050,24 @@ extension Ghostty {
                 HStack {
                     Spacer()
 
-                    HStack(spacing: 5) {
-                        Image(systemName: "eye.fill")
-                            .font(.system(size: 12))
-                        Text("Read-only")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(badgeBackground)
-                    .foregroundStyle(badgeColor)
-                    .onTapGesture {
+                    Button {
                         showingPopover = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "eye.fill")
+                                .font(.system(size: 12))
+                            Text("Read-Only")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(badgeBackground)
+                        .foregroundStyle(badgeColor)
                     }
+                    .buttonStyle(.plain)
                     .backport.pointerStyle(.link)
+                    .accessibilityHint("Shows read-only details. Disable read-only from the popover.")
+                    .help("Read-only terminal. Show details.")
                     .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
                         ReadonlyPopoverView(onDisable: onDisable, isPresented: $showingPopover)
                     }
@@ -1012,7 +1077,11 @@ extension Ghostty {
                 Spacer()
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Read-only terminal")
+            .accessibilityLabel("Read-Only terminal")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                showingPopover = true
+            }
         }
 
         private var badgeBackground: some View {

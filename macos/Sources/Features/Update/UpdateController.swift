@@ -31,8 +31,11 @@ class UpdateController {
     }
 
     /// Automatic updates remain disabled until Toastty owns a signed appcast.
+    /// This intentionally never starts the updater so release builds don't
+    /// silently poll a nonexistent (or upstream) feed.
     func startUpdater() {
-        // Toastty has no signed appcast yet. Never start Ghostty's updater.
+        // Toastty has no signed appcast yet. Never start the updater.
+        Ghostty.logger.info("automatic updates disabled: no signed appcast configured")
     }
 
     func checkForUpdates() {

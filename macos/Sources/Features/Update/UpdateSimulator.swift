@@ -6,6 +6,9 @@ import Sparkle
 /// The expected usage is by overriding the `checkForUpdates` function in AppDelegate and
 /// calling one of these instead. This will allow us to test the update flows without having to use
 /// real updates.
+///
+/// Debug only: there is no update feed in release builds.
+#if DEBUG
 enum UpdateSimulator {
     /// Complete successful update flow: checking → available → download → extract → ready → install → idle
     case happyPath
@@ -290,3 +293,4 @@ enum UpdateSimulator {
         simulateInstalling(viewModel, appcastItem: item)
     }
 }
+#endif

@@ -62,4 +62,21 @@ struct MenuShortcutManagerTests {
         #expect(goToLeftItem.keyEquivalent == "h")
         #expect(goToLeftItem.keyEquivalentModifierMask == .command)
     }
+
+    @Test func projectActionsSyncDarwinDefaultShortcuts() async throws {
+        let config = try TemporaryConfig("")
+
+        let newProjectItem = NSMenuItem(title: "New Project", action: nil, keyEquivalent: "")
+        let sidebarItem = NSMenuItem(title: "Toggle Project Sidebar", action: nil, keyEquivalent: "")
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.reset()
+        await manager.syncMenuShortcut(config, action: "new_project", menuItem: newProjectItem)
+        await manager.syncMenuShortcut(config, action: "toggle_project_sidebar", menuItem: sidebarItem)
+
+        #expect(newProjectItem.keyEquivalent == "p")
+        #expect(newProjectItem.keyEquivalentModifierMask == .command)
+        #expect(sidebarItem.keyEquivalent == "b")
+        #expect(sidebarItem.keyEquivalentModifierMask == .command)
+    }
 }

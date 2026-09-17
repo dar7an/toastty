@@ -447,6 +447,51 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Move the current tab to a new window."),
         }},
 
+        .new_project => comptime &.{.{
+            .action = .new_project,
+            .title = i18n.N_("New Project"),
+            .description = i18n.N_("Open a new project."),
+        }},
+
+        .toggle_project_sidebar => comptime &.{.{
+            .action = .toggle_project_sidebar,
+            .title = i18n.N_("Toggle Project Sidebar"),
+            .description = i18n.N_("Toggle the project sidebar."),
+        }},
+
+        .move_split => comptime &.{
+            .{
+                .action = .{ .move_split = .previous },
+                .title = i18n.N_("Move Split: Previous"),
+                .description = i18n.N_("Move the current split to the previous position, if any."),
+            },
+            .{
+                .action = .{ .move_split = .next },
+                .title = i18n.N_("Move Split: Next"),
+                .description = i18n.N_("Move the current split to the next position, if any."),
+            },
+            .{
+                .action = .{ .move_split = .left },
+                .title = i18n.N_("Move Split: Left"),
+                .description = i18n.N_("Move the current split to the left, if possible."),
+            },
+            .{
+                .action = .{ .move_split = .right },
+                .title = i18n.N_("Move Split: Right"),
+                .description = i18n.N_("Move the current split to the right, if possible."),
+            },
+            .{
+                .action = .{ .move_split = .up },
+                .title = i18n.N_("Move Split: Up"),
+                .description = i18n.N_("Move the current split up, if possible."),
+            },
+            .{
+                .action = .{ .move_split = .down },
+                .title = i18n.N_("Move Split: Down"),
+                .description = i18n.N_("Move the current split down, if possible."),
+            },
+        },
+
         .toggle_tab_overview => comptime &.{.{
             .action = .toggle_tab_overview,
             .title = i18n.N_("Toggle Tab Overview"),
@@ -728,6 +773,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_project,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -742,6 +788,8 @@ fn actionCommands(action: Action.Key) []const Command {
         .toggle_command_palette,
         .toggle_quick_terminal,
         .toggle_visibility,
+        .previous_project,
+        .next_project,
         .previous_tab,
         .next_tab,
         .last_tab,

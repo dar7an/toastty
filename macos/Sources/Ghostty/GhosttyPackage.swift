@@ -173,6 +173,32 @@ extension Ghostty {
                 return GHOSTTY_GOTO_SPLIT_RIGHT
             }
         }
+
+        /// Initialize from a move-split API enum (same layout as goto-split).
+        static func from(moveSplit: ghostty_action_move_split_e) -> Self? {
+            switch moveSplit {
+            case GHOSTTY_MOVE_SPLIT_PREVIOUS:
+                return .previous
+
+            case GHOSTTY_MOVE_SPLIT_NEXT:
+                return .next
+
+            case GHOSTTY_MOVE_SPLIT_UP:
+                return .up
+
+            case GHOSTTY_MOVE_SPLIT_DOWN:
+                return .down
+
+            case GHOSTTY_MOVE_SPLIT_LEFT:
+                return .left
+
+            case GHOSTTY_MOVE_SPLIT_RIGHT:
+                return .right
+
+            default:
+                return nil
+            }
+        }
     }
 
     /// Enum used for resizing splits. This is the direction the split divider will move.
@@ -356,6 +382,20 @@ extension Ghostty.Notification {
     /// Goto tab. Has tab index in the userinfo.
     static let ghosttyGotoTab = Notification.Name("com.dar7an.toastty.gotoTab")
     static let GotoTabKey = ghosttyGotoTab.rawValue
+
+    /// New project. Object is the surface that had focus.
+    static let ghosttyNewProject = Notification.Name("com.dar7an.toastty.newProject")
+
+    /// Goto project. Has project index in the userinfo.
+    static let ghosttyGotoProject = Notification.Name("com.dar7an.toastty.gotoProject")
+    static let GotoProjectKey = ghosttyGotoProject.rawValue
+
+    /// Toggle project sidebar. Object is the surface that had focus.
+    static let ghosttyToggleProjectSidebar = Notification.Name("com.dar7an.toastty.toggleProjectSidebar")
+
+    /// Move split. Has a SplitFocusDirection in the userinfo.
+    static let ghosttyMoveSplit = Notification.Name("com.dar7an.toastty.moveSplit")
+    static let MoveSplitDirectionKey = ghosttyMoveSplit.rawValue
 
     /// New tab. Has base surface config requested in userinfo.
     static let ghosttyNewTab = Notification.Name("com.dar7an.toastty.newTab")

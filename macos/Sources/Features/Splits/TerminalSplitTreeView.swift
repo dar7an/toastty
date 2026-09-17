@@ -69,7 +69,7 @@ private struct TerminalSplitSubtreeView: View {
                 }, set: {
                     action(.resize(.init(node: node, ratio: $0)))
                 }),
-                dividerColor: ghostty.config.splitDividerColor,
+                dividerColor: ghostty.config.configuredSplitDividerColor ?? ProjectChrome.separatorColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
                     TerminalSplitSubtreeView(node: split.left, action: action)
@@ -123,7 +123,7 @@ private struct TerminalSplitLeaf: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Terminal pane")
+            .accessibilityLabel("Terminal split")
         }
     }
 
@@ -258,7 +258,6 @@ enum TerminalSplitDropZone: String, Equatable {
 private struct TerminalSplitDropPreview: View {
     let zone: TerminalSplitDropZone?
     let size: CGSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -280,7 +279,7 @@ private struct TerminalSplitDropPreview: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         // Cross-fade only the preview; never animate terminal layout or input.
-        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.15), value: zone)
+        .motionAnimation(.easeOut(duration: 0.15), value: zone)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

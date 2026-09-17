@@ -48,6 +48,54 @@ struct TabSidebarModelTests {
         #expect(model.rows.first?.pwd == nil)
     }
 
+    @Test func directoryPrefersSelectedTabsLivePwd() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let core = try #require(app.app)
+        let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha-dir")
+        let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
+        let controllers = [alpha, alpha].enumerated().map { index, project in
+            let controller = TerminalController(app, withSurfaceTree: .init())
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                  styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            controller.project = project
+            controller.focusedSurface = surfaces[index]
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach { $0.focusedSurface = nil; $0.window = nil }
+            windows.forEach { $0.close() }
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        let group = try #require(windows[0].tabGroup)
+        let model = group.tabSidebarModel
+        surfaces[0].pwd = "/tmp/first"
+        surfaces[1].pwd = "/tmp/second"
+        await drainMainQueue()
+
+        // The label tracks the tab the project would restore to.
+        model.select(ObjectIdentifier(windows[1]))
+        await drainMainQueue()
+        #expect(model.directory(for: controllers[0].project) == "/tmp/second")
+        model.select(ObjectIdentifier(windows[0]))
+        await drainMainQueue()
+        #expect(model.directory(for: controllers[0].project) == "/tmp/first")
+
+        // When the restore target has no pwd, a sibling tab's live pwd wins.
+        surfaces[0].pwd = nil
+        await drainMainQueue()
+        #expect(model.directory(for: controllers[0].project) == "/tmp/second")
+
+        // With no live pwd the fixed creation directory is shown.
+        surfaces.forEach { $0.pwd = nil }
+        await drainMainQueue()
+        #expect(model.directory(for: controllers[0].project) == "/tmp/alpha-dir")
+    }
+
     @Test func projectsOwnTabsAndRememberSelection() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -182,6 +230,8 @@ struct TabSidebarModelTests {
     @Test func colorPaletteOrderMatchesEnumOrder() {
         #expect(TabColorMenuView.paletteColors == TerminalTabColor.allCases)
         #expect(TabColorMenuView.paletteColors.first == TerminalTabColor.none)
+        // Pinned so an accidental palette addition fails instead of passing silently.
+        #expect(TabColorMenuView.paletteColors.count == 10)
     }
 
     @Test func renameCommitChangesOnlyDisplayName() async throws {
@@ -240,7 +290,7 @@ struct TabSidebarModelTests {
         #expect(model.editingProjectID == nil)
     }
 
-    @Test func renameEmptyPreservesNameAndCancelDiscards() async throws {
+    @Test func renameCancelDiscardsAndEmptyRestoresDefault() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha-dir")
@@ -256,16 +306,6 @@ struct TabSidebarModelTests {
         let model = group.tabSidebarModel
         await drainMainQueue()
 
-        // Invalid input must not discard an existing custom name.
-        model.beginRename(projectID: alpha.id)
-        model.editingDraft = "   "
-        model.commitRename()
-        await drainMainQueue()
-        #expect(model.projects.first?.displayName == "Alpha")
-        #expect(controller.project.nameOverride == "Alpha")
-        #expect(controller.project.directory == "/tmp/alpha-dir")
-        #expect(model.editingProjectID == nil)
-
         // Escape-equivalent cancel discards a valid draft.
         model.beginRename(projectID: alpha.id)
         model.editingDraft = "Discarded"
@@ -273,6 +313,17 @@ struct TabSidebarModelTests {
         await drainMainQueue()
         #expect(model.projects.first?.displayName == "Alpha")
         #expect(controller.project.nameOverride == "Alpha")
+        #expect(model.editingProjectID == nil)
+
+        // Blank clears the override and restores the derived name,
+        // matching tab rename behavior.
+        model.beginRename(projectID: alpha.id)
+        model.editingDraft = "   "
+        model.commitRename()
+        await drainMainQueue()
+        #expect(model.projects.first?.displayName == "alpha-dir")
+        #expect(controller.project.nameOverride == nil)
+        #expect(controller.project.directory == "/tmp/alpha-dir")
         #expect(model.editingProjectID == nil)
     }
 

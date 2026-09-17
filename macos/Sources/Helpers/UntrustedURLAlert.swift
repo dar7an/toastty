@@ -2,7 +2,7 @@ import AppKit
 
 /// Presents decisions for untrusted URLs at the AppKit boundary.
 enum UntrustedURLAlert {
-    static func presentConfirmation(for url: URL, displayString: String) {
+    static func presentConfirmation(for url: URL, displayString: String, owner: NSWindow? = nil) {
         deferPresentation {
             let workspace = NSWorkspace.shared
             let handler = workspace.urlForApplication(toOpen: url)
@@ -20,7 +20,7 @@ enum UntrustedURLAlert {
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Open Link")
 
-            present(alert) { response in
+            present(alert, owner: owner) { response in
                 // Cancel is deliberately the default action.
                 guard response == .alertSecondButtonReturn else { return }
                 _ = workspace.open(url)
@@ -30,7 +30,8 @@ enum UntrustedURLAlert {
 
     static func presentBlock(
         reason: UntrustedURL.DenialReason,
-        displayString: String
+        displayString: String,
+        owner: NSWindow? = nil
     ) {
         deferPresentation {
             let alert = NSAlert()
@@ -42,7 +43,7 @@ enum UntrustedURLAlert {
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Copy Link")
 
-            present(alert) { response in
+            present(alert, owner: owner) { response in
                 // Keep blocked targets out of Launch Services. Copying the
                 // displayed, sanitized value gives the user an explicit path
                 // forward without adding a one-click policy bypass.
@@ -63,9 +64,10 @@ enum UntrustedURLAlert {
 
     private static func present(
         _ alert: NSAlert,
+        owner: NSWindow?,
         completion: @escaping (NSApplication.ModalResponse) -> Void
     ) {
-        if let window = NSApp.keyWindow {
+        if let window = owner ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: completion)
         } else {
             completion(alert.runModal())

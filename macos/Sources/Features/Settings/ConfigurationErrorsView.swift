@@ -15,6 +15,7 @@ struct ConfigurationErrorsView<ViewModel: ConfigurationErrorsViewModel>: View {
                     .font(.system(size: 52))
                     .padding()
                     .frame(alignment: .center)
+                    .accessibilityLabel("Configuration error warning")
 
                 Text("""
                     ^[\(model.errors.count) error(s) were](inflect: true) found while loading the configuration. \
@@ -44,6 +45,7 @@ struct ConfigurationErrorsView<ViewModel: ConfigurationErrorsViewModel>: View {
             }
 
             HStack {
+                Button("Open Configuration…") { openConfig() }
                 Spacer()
                 Button("Ignore") { model.errors = [] }
                     .keyboardShortcut(.cancelAction)
@@ -59,5 +61,10 @@ struct ConfigurationErrorsView<ViewModel: ConfigurationErrorsViewModel>: View {
     private func reloadConfig() {
         guard let delegate = NSApplication.shared.delegate as? AppDelegate else { return }
         delegate.reloadConfig(nil)
+    }
+
+    private func openConfig() {
+        guard let delegate = NSApplication.shared.delegate as? AppDelegate else { return }
+        delegate.openConfig(nil)
     }
 }

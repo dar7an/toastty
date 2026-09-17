@@ -163,6 +163,21 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             object: nil)
         center.addObserver(
             self,
+            selector: #selector(onNewProject),
+            name: Ghostty.Notification.ghosttyNewProject,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onGotoProject),
+            name: Ghostty.Notification.ghosttyGotoProject,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(onToggleProjectSidebar),
+            name: Ghostty.Notification.ghosttyToggleProjectSidebar,
+            object: nil)
+        center.addObserver(
+            self,
             selector: #selector(onCloseTab),
             name: .ghosttyCloseTab,
             object: nil)
@@ -1503,7 +1518,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// working-directory inheritance. Projects may share directories; they
     /// are separated by UUID.
     @objc func newProject(_ sender: Any?) {
-        guard let window else { return }
+        guard usesProjectSidebar, let window else { return }
 
         // Reuse the inherited surface configuration (font, environment, …)
         // so the first tab matches a normal new tab. Built immediately so
@@ -1551,7 +1566,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
         let alert = NSAlert()
         alert.messageText = "Rename Project"
-        alert.informativeText = "Each project keeps its own tabs."
+        alert.informativeText = "Leave blank to restore the default."
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.placeholderString = "Project name"
         field.stringValue = projectDisplayName(project)
@@ -1559,20 +1574,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
-        alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let nameObserver = NotificationCenter.default.addObserver(
-            forName: NSTextField.textDidChangeNotification, object: field, queue: .main
-        ) { _ in
-            alert.buttons.first?.isEnabled = !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
         alert.beginSheetModal(for: window) { [weak self] response in
-            NotificationCenter.default.removeObserver(nameObserver)
             guard let self, response == .alertFirstButtonReturn else { return }
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
             for tab in self.projectTabWindows {
                 guard let controller = tab.windowController as? TerminalController else { continue }
-                controller.project.nameOverride = (name == controller.project.automaticName) ? nil : name
+                controller.project.nameOverride = (name.isEmpty || name == controller.project.automaticName) ? nil : name
             }
             window.tabGroup?.tabSidebarModel.refresh()
         }
@@ -1628,7 +1635,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         confirmClose(
             messageText: "Close Tab?",
-            informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
+            informativeText: "This tab still has a running process. If you close the tab, the process will be killed."
         ) {
             self.closeTabImmediately()
         }
@@ -1659,7 +1666,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         confirmClose(
             messageText: "Close Other Tabs?",
-            informativeText: "At least one other tab still has a running process. If you close the tab the process will be killed."
+            informativeText: "At least one other tab still has a running process. If you close the other tabs, their processes will be killed."
         ) {
             self.closeOtherTabsImmediately()
         }
@@ -1687,8 +1694,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         confirmClose(
-            messageText: "Close Tabs on the Right?",
-            informativeText: "At least one tab to the right still has a running process. If you close the tab the process will be killed."
+            messageText: "Close Tabs to the Right?",
+            informativeText: "At least one tab to the right still has a running process. If you close these tabs, their processes will be killed."
         ) {
             self.closeTabsOnTheRightImmediately()
         }
@@ -1922,6 +1929,58 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         targetWindow.makeKeyAndOrderFront(nil)
     }
 
+    @objc private func onNewProject(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard target == self.focusedSurface else { return }
+        newProject(nil)
+    }
+
+    @objc private func onGotoProject(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard target == self.focusedSurface else { return }
+        guard let window = self.window else { return }
+        guard let tabGroup = window.tabGroup else { return }
+
+        guard let projectAny = notification.userInfo?[Ghostty.Notification.GotoProjectKey] else { return }
+        guard let projectEnum = projectAny as? ghostty_action_goto_project_e else { return }
+        let projectIndex: Int32 = projectEnum.rawValue
+
+        // Project scoping mirrors onGotoTab: resolve projects from the shared
+        // sidebar model so order matches the visible list.
+        let model = tabGroup.tabSidebarModel
+        let projects = model.projects
+        guard !projects.isEmpty else { return }
+        guard let selectedID = model.selectedProjectID,
+              let selectedIndex = projects.firstIndex(where: { $0.id == selectedID }) else { return }
+
+        let finalIndex: Int
+        if projectIndex <= 0 {
+            if projectIndex == GHOSTTY_GOTO_PROJECT_PREVIOUS.rawValue {
+                finalIndex = selectedIndex == 0 ? projects.count - 1 : selectedIndex - 1
+            } else if projectIndex == GHOSTTY_GOTO_PROJECT_NEXT.rawValue {
+                finalIndex = selectedIndex == projects.count - 1 ? 0 : selectedIndex + 1
+            } else if projectIndex == GHOSTTY_GOTO_PROJECT_LAST.rawValue {
+                finalIndex = projects.count - 1
+            } else {
+                return
+            }
+        } else {
+            guard projectIndex >= 1 else { return }
+            finalIndex = min(Int(projectIndex - 1), projects.count - 1)
+        }
+
+        guard projects.indices.contains(finalIndex) else { return }
+        // Keyboard navigation must not yank focus after the first step; the
+        // sidebar keeps focus so repeated presses keep working.
+        model.selectProject(projects[finalIndex].id, stealFocus: false)
+    }
+
+    @objc private func onToggleProjectSidebar(notification: SwiftUI.Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard target == self.focusedSurface else { return }
+        toggleProjectSidebar(nil)
+    }
+
     @objc private func onCloseTab(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
@@ -2071,6 +2130,7 @@ extension TerminalController {
             switch self {
             case .frame(let rect):
                 window.setFrame(rect, display: true)
+                window.constrainToScreen()
             case .contentIntrinsicSize:
                 guard let size = window.contentView?.intrinsicContentSize else {
                     return
