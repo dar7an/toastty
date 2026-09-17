@@ -261,6 +261,15 @@ func restoreTerminalFocusAfterPalette(_ surface: Ghostty.SurfaceView) {
        window.tabGroup?.tabSidebarModel.editingProjectID != nil {
         return
     }
+    // If focus already lives in a text editor (project rename field, tab
+    // rename, search field, or the test's standalone field), don't yank it
+    // back to the terminal. This covers rename sessions whose model hasn't
+    // rebuilt rows yet, where `editingProjectID` alone can't prove editing.
+    if let firstResponder = window.firstResponder, firstResponder !== surface {
+        if firstResponder is NSTextView || firstResponder is NSTextField {
+            return
+        }
+    }
     window.makeFirstResponder(surface)
 }
 

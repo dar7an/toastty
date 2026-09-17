@@ -18,12 +18,12 @@ struct ProjectWindowLayoutTests {
         window.orderFront(nil)
         window.contentView?.layoutSubtreeIfNeeded()
         await drainMainQueue()
-        #expect(abs(split.sidebarSplitItem.viewController.view.frame.width - 260) < 1)
+        #expect(abs(split.sidebarColumnWidth - 260) < 1)
         let item = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
         })
         let host = try #require(item.view)
-        #expect(host.frame.width > 600)
+        #expect(host.frame.width > window.contentLayoutRect.width - split.sidebarColumnWidth - 180)
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })
@@ -66,8 +66,20 @@ struct ProjectWindowLayoutTests {
         await drainMainQueue()
         split.splitView.setPosition(280, ofDividerAt: 0)
         await drainMainQueue()
-        #expect(window.tabGroup?.tabSidebarModel.width == 280)
-        #expect(controller.sidebarState?.expandedWidth == 280)
+        #expect(abs(split.sidebarColumnWidth - 280) < 1)
+        #expect(window.tabGroup?.tabSidebarModel.width == split.sidebarColumnWidth)
+        #expect(controller.sidebarState?.expandedWidth == split.sidebarColumnWidth)
+
+        // Reapplying a measured width must not subtract AppKit's content inset
+        // on every layout pass, including after a collapse and expansion.
+        for _ in 0..<3 {
+            split.applySidebarState(SidebarState(isVisible: false, expandedWidth: 280), animated: false)
+            split.applySidebarState(SidebarState(isVisible: true, expandedWidth: 280), animated: false)
+            window.contentView?.layoutSubtreeIfNeeded()
+            await drainMainQueue()
+            #expect(abs(split.sidebarColumnWidth - 280) < 1)
+            #expect(abs((controller.sidebarState?.expandedWidth ?? 0) - 280) < 1)
+        }
     }
 
     @Test func renderedTabCellIncludesItsPadding() {

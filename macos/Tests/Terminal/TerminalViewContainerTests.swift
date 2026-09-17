@@ -45,8 +45,9 @@ class MockConfig: Ghostty.Config {
     }
 }
 
+@MainActor
+@Suite(.serialized)
 struct TerminalViewContainerTests {
-    @MainActor
     @Test func defaultSizeTracksSidebarWidth() {
         let view = TerminalViewContainer { Color.clear.frame(width: 10, height: 10) }
         view.initialContentSize = NSSize(width: 800, height: 480)
@@ -62,18 +63,19 @@ struct TerminalViewContainerTests {
         for width: CGFloat in [220, 160, 320, 0] {
             sidebarWidth = width
             TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
-            #expect(view.frame.width == 800 + width)
-            #expect(abs(view.frame.height - CGFloat(480 + (width > 0 ? 90 : 0))) < 0.5)
+            let target = NSSize(width: 800 + width, height: 480 + (width > 0 ? 90 : 0))
+            #expect(view.intrinsicContentSize == target)
+            expectContentSize(target, in: window)
         }
     }
 
     @Test func glassAvailability() async throws {
-        let view = await MockTerminalViewContainer {
+        let view = MockTerminalViewContainer {
             EmptyView()
         }
 
         let config = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
-        await view.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        view.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
         try await Task.sleep(nanoseconds: UInt64(1e8)) // wait for the view to be setup if needed
         if #available(macOS 26.0, *) {
             #expect(view.glassEffectView != nil)
@@ -82,7 +84,6 @@ struct TerminalViewContainerTests {
         }
     }
 
-    @MainActor
     @Test func sidebarInsetCountsOnlyWhenExpanded() {
         let view = TerminalViewContainer { Color.clear.frame(width: 10, height: 10) }
         view.initialContentSize = NSSize(width: 800, height: 480)
@@ -100,22 +101,18 @@ struct TerminalViewContainerTests {
         defer { window.close() }
 
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
-        #expect(view.frame.width == 1020)
-        #expect(abs(view.frame.height - 480) < 0.5)
+        expectContentSize(NSSize(width: 1020, height: 480), in: window)
 
         expandedWidth = 300
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
-        #expect(view.frame.width == 1100)
-        #expect(abs(view.frame.height - 480) < 0.5)
+        expectContentSize(NSSize(width: 1100, height: 480), in: window)
 
         // Collapsed: the terminal keeps its full configured size.
         expanded = false
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
-        #expect(view.frame.width == 800)
-        #expect(abs(view.frame.height - 480) < 0.5)
+        expectContentSize(NSSize(width: 800, height: 480), in: window)
     }
 
-    @MainActor
     @Test func projectSplitEmbedKeepsContainerAsContentView() throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -136,5 +133,31 @@ struct TerminalViewContainerTests {
         #expect(container.projectSplitViewController === split)
         #expect(split.splitViewItems.count == 2)
         #expect(!split.sidebarSplitItem.isCollapsed)
+    }
+
+    @Test func laidOutTerminalIncludesToolbarInDefaultSize() throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let controller = TerminalController(app, withSurfaceTree: .init(), usesProjectSidebar: true)
+        let split = ProjectSplitViewController(
+            controller: controller, content: AnyView(Color.clear.frame(width: 800, height: 480)))
+        let container = TerminalViewContainer { EmptyView() }
+        container.embedProjectSplitViewController(split)
+        container.initialContentWidthInset = { 220 }
+        container.initialContentHeightInset = { 52 }
+
+        // Once the terminal supplies its ideal size, the toolbar must still be
+        // counted. Otherwise Return to Default Size removes terminal rows.
+        #expect(container.intrinsicContentSize == NSSize(width: 1020, height: 532))
+    }
+
+    private func expectContentSize(_ target: NSSize, in window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main, let view = window.contentView else {
+            Issue.record("A window and screen are required for native sizing tests")
+            return
+        }
+        let available = window.contentRect(forFrameRect: screen.visibleFrame).size
+        #expect(abs(view.frame.width - min(target.width, available.width)) < 0.5)
+        #expect(abs(view.frame.height - min(target.height, available.height)) < 0.5)
     }
 }

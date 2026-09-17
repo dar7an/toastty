@@ -126,12 +126,19 @@ final class ProjectSplitViewController: NSSplitViewController {
             model.setVisible(!collapsed)
         }
         if !collapsed {
-            let width = sidebarHostingController.view.frame.width
+            let width = sidebarColumnWidth
             if width >= TabSidebarModel.minWidth,
                abs(width - model.width) >= 0.5 {
                 model.setExpandedWidth(width)
             }
         }
+    }
+
+    /// The divider positions refer to the split column, not its hosted view.
+    /// AppKit may inset sidebar content (notably on macOS 26), so measuring
+    /// that content would gradually shrink the saved width on each layout.
+    var sidebarColumnWidth: CGFloat {
+        splitView.arrangedSubviews.first?.frame.width ?? 0
     }
 
     /// The terminal hosting view, used by `TerminalViewContainer` for
@@ -200,7 +207,7 @@ final class ProjectSplitViewController: NSSplitViewController {
             return
         }
         let targetCollapsed = !state.isVisible
-        let currentWidth = sidebarHostingController.view.frame.width
+        let currentWidth = sidebarColumnWidth
         let widthSettled = targetCollapsed
             || abs(currentWidth - state.expandedWidth) < 0.5
         if sidebarSplitItem.isCollapsed == targetCollapsed && widthSettled {
