@@ -38,7 +38,8 @@ extension Ghostty {
         }
 
         convenience init(at path: String? = nil, finalize: Bool = true) {
-            self.init(config: Self.loadConfig(at: path, finalize: finalize))
+            self.init(config: Self.loadConfig(
+                at: path, finalize: finalize, appearanceOverride: ToasttyAppearance.saved))
         }
 
         convenience init(clone config: ghostty_config_t) {
@@ -57,11 +58,21 @@ extension Ghostty {
         /// - Parameters:
         ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
         ///   - finalize: Whether to finalize the configuration to populate default values.
-        static func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
+        static func loadConfig(
+            at path: String?,
+            finalize: Bool,
+            appearanceOverride: ToasttyAppearance? = nil
+        ) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
                 return nil
+            }
+
+            // Supply an adaptive palette before user settings. Explicit themes,
+            // colors, and CLI arguments keep their normal precedence.
+            if let defaults = Bundle.main.url(forResource: "ToasttyDefaults", withExtension: "ghostty") {
+                ghostty_config_load_file(cfg, defaults.path)
             }
 
             // Load our configuration from files, CLI args, and then any referenced files.
@@ -78,6 +89,13 @@ extension Ghostty {
             }
 
             ghostty_config_load_recursive_files(cfg)
+
+            // The app supplies its saved preference; direct config readers and
+            // tests can omit it without depending on global preferences.
+            if let appearance = appearanceOverride,
+               let url = appearance.configurationURL {
+                ghostty_config_load_file(cfg, url.path)
+            }
 
             // TODO: we'd probably do some config loading here... for now we'd
             // have to do this synchronously. When we support config updating we can do

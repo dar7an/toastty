@@ -34,6 +34,28 @@ Dragging a divider snaps near one-third, one-half, and two-thirds. Hold **Option
 to bypass snapping. Double-click a divider to equalize. These operations arrange
 terminal panes inside Toastty; macOS still controls whole-window tiling.
 
+## Appearance and themes
+
+Toastty follows macOS light and dark appearance by default, including the terminal
+palette. Choose **View → Appearance → System**, **Light**, or **Dark** to switch
+without restarting. The choice is saved for the next launch and applies to all
+windows and Quick Terminal. **Use Configuration** clears the menu override.
+You can also search for **Appearance** in the command palette (⇧⌘P).
+
+The default pair is GitHub Light Default / GitHub Dark Default. To use other
+bundled themes, choose **Toastty → Settings** and add, for example:
+
+```ini
+theme = light:Rose Pine Dawn,dark:Rose Pine
+```
+
+Then choose **Toastty → Reload Configuration** (⇧⌘,). A single `theme = …` keeps
+that terminal palette in both appearances. Explicit `background`, `foreground`,
+and palette settings also take precedence over the default colors. The Appearance
+menu changes which half of a light/dark theme pair is used; it does not erase
+custom colors or rewrite your configuration file. With **Use Configuration**,
+`window-theme` controls the window appearance too.
+
 ## Configuration
 
 Choose **Toastty → Settings** to open the configuration file. Toastty reads

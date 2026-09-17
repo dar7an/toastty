@@ -11,7 +11,23 @@ Ghostty. Toastty adds a deliberately small workspace interface around that work.
 - Directory-based project names and paths; double-click to rename.
 - A native toolbar, compact tab colors, and a tab rail that adapts to window width.
 - Pane splits from the context menu, drag previews, and divider snapping.
+- System, light, and dark appearance, with matching terminal palettes.
 - A separate app identity and configuration so Toastty can live beside Ghostty.
+
+## A look inside
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/workspaces-dark.jpg">
+  <img src="docs/screenshots/workspaces-light.jpg" alt="Toastty with three projects in the sidebar, two tabs in the selected project, and Swift source and output in side-by-side terminal panes.">
+</picture>
+
+An example workspace in the running macOS app. View the full-size
+[light screenshot](docs/screenshots/workspaces-light.jpg) or
+[dark screenshot](docs/screenshots/workspaces-dark.jpg).
+
+Choose **View → Appearance → System, Light, or Dark**. System follows macOS;
+the terminal palette and window chrome change together. Appearance is also
+available in the command palette (⇧⌘P). [Customize themes](docs/usage.md#appearance-and-themes).
 
 ## Get started
 

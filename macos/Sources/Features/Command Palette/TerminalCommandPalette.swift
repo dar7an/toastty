@@ -80,8 +80,20 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: sortedTerminalPaletteOptions(jumpOptions + projectOptions + terminalOptions))
+        options.append(contentsOf: sortedTerminalPaletteOptions(
+            jumpOptions + projectOptions + appearanceOptions + terminalOptions))
         return options
+    }
+
+    /// Keep appearance discoverable from the keyboard as well as the View menu.
+    private var appearanceOptions: [CommandOption] {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) else { return [] }
+        return ToasttyAppearance.allCases.map { appearance in
+            CommandOption(title: "Appearance: \(appearance.title)", leadingIcon: "circle.lefthalf.filled") {
+                ToasttyAppearance.saved = appearance
+                controller.ghostty.reloadConfig()
+            }
+        }
     }
 
     /// Commands for installing or canceling available updates.

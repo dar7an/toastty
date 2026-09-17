@@ -59,6 +59,9 @@ struct ProjectActionRoutingTests {
         #expect(palette.commandOptions.filter { $0.title == "New Project" }.count == 1)
         #expect(palette.commandOptions.filter { $0.title == "Toggle Project Sidebar" }.count == 1)
         #expect(palette.commandOptions.contains { $0.title == "Rename Project…" })
+        #expect(palette.commandOptions.filter { $0.title.hasPrefix("Appearance:") }.map(\.title) == [
+            "Appearance: Dark", "Appearance: Light", "Appearance: System"
+        ])
 
         let quickView = Ghostty.SurfaceView(core)
         let quick = BaseTerminalController(app, surfaceTree: .init(view: quickView))
@@ -67,6 +70,7 @@ struct ProjectActionRoutingTests {
         let quickPalette = TerminalCommandPaletteView(
             surfaceView: quickView, isPresented: .constant(true), ghosttyConfig: app.config, onAction: { _ in })
         #expect(!quickPalette.commandOptions.contains { $0.title.contains("Project") || $0.title.contains("Sidebar") })
+        #expect(quickPalette.commandOptions.filter { $0.title.hasPrefix("Appearance:") }.count == 3)
     }
 
     @Test func moveAndCloseClickedPanePreserveSurfacesAndUndo() async throws {

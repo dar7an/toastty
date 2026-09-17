@@ -330,6 +330,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        setupAppearanceMenu()
 
         // Setup signal handlers
         setupSignals()
@@ -968,6 +969,29 @@ class AppDelegate: NSObject,
 
     // MARK: - IB Actions
 
+    /// Native appearance controls stay available even when no terminal is open.
+    private func setupAppearanceMenu() {
+        guard let viewMenu = NSApp.mainMenu?.items.first(where: { $0.title == "View" })?.submenu else { return }
+        let menu = NSMenu(title: "Appearance")
+        for appearance in ToasttyAppearance.allCases {
+            let item = menu.addItem(withTitle: appearance.title, action: #selector(changeAppearance(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = appearance.rawValue
+        }
+        menu.addItem(.separator())
+        let configured = menu.addItem(withTitle: "Use Configuration", action: #selector(changeAppearance(_:)), keyEquivalent: "")
+        configured.target = self
+        let parent = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
+        parent.submenu = menu
+        viewMenu.insertItem(parent, at: 0)
+        viewMenu.insertItem(.separator(), at: 1)
+    }
+
+    @objc private func changeAppearance(_ sender: NSMenuItem) {
+        ToasttyAppearance.saved = (sender.representedObject as? String).flatMap(ToasttyAppearance.init(rawValue:))
+        ghostty.reloadConfig()
+    }
+
     @IBAction func openConfig(_ sender: Any?) {
         ghostty.openConfig()
     }
@@ -1306,6 +1330,10 @@ extension AppDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(changeAppearance(_:)):
+            item.state = (item.representedObject as? String) == ToasttyAppearance.saved?.rawValue ? .on : .off
+            return true
+
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
 
