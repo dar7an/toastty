@@ -139,6 +139,7 @@ class BaseTerminalController: NSWindowController,
         fatalError("init(coder:) is not supported for this view")
     }
 
+    /// Creates a terminal window controller with optional restored project state.
     init(_ ghostty: Ghostty.App,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
          surfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
@@ -411,6 +412,7 @@ class BaseTerminalController: NSWindowController,
         return await alert.beginSheetModal(for: window)
     }
 
+    /// Presents a close confirmation and invokes the completion after approval.
     func confirmClose(
         messageText: String,
         informativeText: String,
@@ -801,6 +803,7 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Reorders the notified split relative to its directional neighbor.
     @objc private func ghosttyDidMoveSplit(_ notification: Notification) {
         // The target must be within our tree
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
@@ -1283,6 +1286,7 @@ class BaseTerminalController: NSWindowController,
     // This is called when performClose is called on a window (NOT when close()
     // is called directly). performClose is called primarily when UI elements such
     // as the "red X" are pressed.
+    /// Allows a window close immediately or starts process-close confirmation.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !windowCanBeClosedWithoutConfirmation() else {
             return true

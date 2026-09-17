@@ -63,6 +63,7 @@ struct MenuShortcutManagerTests {
         #expect(goToLeftItem.keyEquivalentModifierMask == .command)
     }
 
+    /// Verifies that project actions expose their default macOS shortcuts.
     @Test func projectActionsSyncDarwinDefaultShortcuts() async throws {
         let config = try TemporaryConfig("")
 

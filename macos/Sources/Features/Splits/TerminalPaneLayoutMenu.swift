@@ -42,6 +42,7 @@ enum TerminalPaneLayoutMenu {
         ])
     }
 
+    /// Appends one labeled row of split actions to a native menu.
     private static func appendRow(
         to menu: NSMenu,
         title: String,
@@ -192,14 +193,19 @@ extension Ghostty.SurfaceView {
         ghostty_surface_split_equalize(surface)
     }
 
+    /// Moves the clicked split left through the core binding action.
     @objc func moveSplitLeftFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "left") }
 
+    /// Moves the clicked split right through the core binding action.
     @objc func moveSplitRightFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "right") }
 
+    /// Moves the clicked split up through the core binding action.
     @objc func moveSplitUpFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "up") }
 
+    /// Moves the clicked split down through the core binding action.
     @objc func moveSplitDownFromMenu(_ sender: Any?) { moveSplitFromMenu(direction: "down") }
 
+    /// Sends a directional split-move action for this surface.
     private func moveSplitFromMenu(direction: String) {
         guard let surface else { return }
         let action = "move_split:\(direction)"

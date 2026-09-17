@@ -326,6 +326,7 @@ enum UpdateState: Equatable {
         case compareTip(URL)
         case tagged(URL)
 
+        /// Resolves release notes for a tagged build or a development commit.
         init?(displayVersionString: String, currentCommit: String?) {
             let version = displayVersionString
 

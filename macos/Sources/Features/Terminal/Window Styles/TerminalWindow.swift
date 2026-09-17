@@ -87,6 +87,7 @@ class TerminalWindow: NSWindow {
         }
     }
 
+    /// Finishes window setup after AppKit loads the terminal window nib.
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
@@ -238,6 +239,7 @@ class TerminalWindow: NSWindow {
         viewModel.isMainWindow = false
     }
 
+    /// Starts native inline tab-title editing when the window style supports it.
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
         // Project workspaces hide the native tab bar, so there is no visible
@@ -405,6 +407,7 @@ class TerminalWindow: NSWindow {
         return childViewController.identifier == Self.tabBarIdentifier
     }
 
+    /// Updates titlebar accessories when AppKit exposes the native tab bar.
     private func tabBarDidAppear() {
         // Project windows hide the native tab bar, so the titlebar zoom
         // accessory stays put as the zoomed indicator there.
@@ -473,6 +476,7 @@ class TerminalWindow: NSWindow {
 
     private lazy var resetZoomTabButton: NSButton = generateResetZoomButton()
 
+    /// Creates the titlebar control that restores the split layout from zoom.
     private func generateResetZoomButton() -> NSButton {
         let button = NSButton()
         button.isHidden = true
@@ -933,6 +937,7 @@ extension TerminalWindow {
         return requiredSelectors.isSubset(of: selectorNames)
     }
 
+    /// Adds rename and color controls for the tab targeted by a native menu.
     private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {
         menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
@@ -1001,6 +1006,7 @@ private func makeTabColorPaletteView(
 // MARK: - Inline Tab Title Editing
 
 extension TerminalWindow: TabTitleEditorDelegate {
+    /// Reports whether the target window supports native inline tab renaming.
     func tabTitleEditor(
         _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow

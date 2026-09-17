@@ -945,6 +945,7 @@ extension Ghostty {
                 .accessibilityHidden(true)
             }
 
+            /// Returns the current activity-dot opacity for the motion preference.
             private func dotOpacity(for index: Int) -> Double {
                 if reduceMotion { return index == 0 ? 1.0 : 0.4 }
                 let phase = animationPhase

@@ -1558,6 +1558,7 @@ extension Ghostty {
             self.showDefinition(for: str, at: pt)
         }
 
+        /// Builds the terminal context menu for a right-click or Control-click.
         override func menu(for event: NSEvent) -> NSMenu? {
             // We only support right-click menus
             switch event.type {

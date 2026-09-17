@@ -97,6 +97,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// directory (see seedProjectDirectoryIfNeeded).
     private var projectDirectoryCancellable: AnyCancellable?
 
+    /// Creates a terminal controller and restores its optional project metadata.
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -1621,6 +1622,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         model.setVisible(!model.sidebarState.isVisible)
     }
 
+    /// Closes this project tab after confirming any running process.
     @IBAction func closeTab(_ sender: Any?) {
         guard let window = window else { return }
         guard window.tabGroup?.windows.count ?? 0 > 1 else {
@@ -1641,6 +1643,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    /// Closes every other tab in the current project after any needed confirmation.
     @IBAction func closeOtherTabs(_ sender: Any?) {
         let tabs = projectTabWindows
 
@@ -1672,6 +1675,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    /// Closes project tabs to the right after any needed confirmation.
     @IBAction func closeTabsOnTheRight(_ sender: Any?) {
         guard let window = window else { return }
         let tabs = projectTabWindows
@@ -1929,12 +1933,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         targetWindow.makeKeyAndOrderFront(nil)
     }
 
+    /// Handles a core new-project action routed to the focused surface.
     @objc private func onNewProject(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
         newProject(nil)
     }
 
+    /// Selects the project addressed by a routed core project action.
     @objc private func onGotoProject(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
@@ -1975,6 +1981,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         model.selectProject(projects[finalIndex].id, stealFocus: false)
     }
 
+    /// Toggles the sidebar for a routed action targeting the focused surface.
     @objc private func onToggleProjectSidebar(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
@@ -2126,6 +2133,7 @@ extension TerminalController {
             }
         }
 
+        /// Applies this geometry choice to the supplied window.
         func apply(to window: NSWindow) {
             switch self {
             case .frame(let rect):

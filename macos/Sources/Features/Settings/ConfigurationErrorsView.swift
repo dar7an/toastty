@@ -63,6 +63,7 @@ struct ConfigurationErrorsView<ViewModel: ConfigurationErrorsViewModel>: View {
         delegate.reloadConfig(nil)
     }
 
+    /// Opens the active configuration file through the application delegate.
     private func openConfig() {
         guard let delegate = NSApplication.shared.delegate as? AppDelegate else { return }
         delegate.openConfig(nil)

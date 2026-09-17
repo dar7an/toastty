@@ -422,6 +422,7 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    /// Presents the quick-terminal window from its configured screen edge.
     private func animateWindowIn(window: NSWindow, from position: QuickTerminalPosition) {
         guard let screen = derivedConfig.quickTerminalScreen.screen else { return }
 
@@ -561,6 +562,7 @@ class QuickTerminalController: BaseTerminalController {
         }
     }
 
+    /// Hides the quick-terminal window toward its configured screen edge.
     private func animateWindowOut(window: NSWindow, to position: QuickTerminalPosition) {
         saveScreenState(exitFullscreen: true)
 

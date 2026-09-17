@@ -584,6 +584,7 @@ extension Ghostty {
 
         // MARK: Actions (macOS)
 
+        /// Dispatches a core action to its macOS application or surface handler.
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             // Make sure it a target we understand so all our action handlers can assert
             switch target.tag {
@@ -815,6 +816,7 @@ extension Ghostty {
             }
         }
 
+        /// Opens a core URL action under Toastty's local-file and trust policy.
         private static func openURL(
             _ v: ghostty_action_open_url_s
         ) -> Bool {
@@ -886,6 +888,7 @@ extension Ghostty {
             }
         }
 
+        /// Applies the untrusted-URL decision and presents any required alert.
         private static func openUntrustedURL(_ value: String) -> Bool {
             let target = UntrustedURL(value)
             // Capture the source window now; the alert itself is deferred to
@@ -1375,6 +1378,7 @@ extension Ghostty {
                 return true
         }
 
+        /// Routes a new-project request to a supported project workspace.
         private static func newProject(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1403,6 +1407,7 @@ extension Ghostty {
                 return true
         }
 
+        /// Routes a project-selection request to a supported project workspace.
         private static func gotoProject(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1435,6 +1440,7 @@ extension Ghostty {
                 return true
         }
 
+        /// Routes a project-sidebar toggle to a supported project workspace.
         private static func toggleProjectSidebar(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1463,6 +1469,7 @@ extension Ghostty {
                 return true
         }
 
+        /// Validates and routes a directional split-move request.
         private static func moveSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
@@ -1717,6 +1724,7 @@ extension Ghostty {
             }
         }
 
+        /// Presents a save panel for a copy of the selected terminal I/O.
         private static func exportTerminalIO(
             _ app: ghostty_app_t,
             target: ghostty_target_s,

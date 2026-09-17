@@ -2,6 +2,7 @@ import AppKit
 
 /// Presents decisions for untrusted URLs at the AppKit boundary.
 enum UntrustedURLAlert {
+    /// Presents a confirmation before opening a terminal-provided URL.
     static func presentConfirmation(for url: URL, displayString: String, owner: NSWindow? = nil) {
         deferPresentation {
             let workspace = NSWorkspace.shared
@@ -28,6 +29,7 @@ enum UntrustedURLAlert {
         }
     }
 
+    /// Explains why a terminal-provided URL was blocked and permits copying it.
     static func presentBlock(
         reason: UntrustedURL.DenialReason,
         displayString: String,
@@ -62,6 +64,7 @@ enum UntrustedURLAlert {
         DispatchQueue.main.async(execute: action)
     }
 
+    /// Presents an alert as a sheet when possible, otherwise as an app modal.
     private static func present(
         _ alert: NSAlert,
         owner: NSWindow?,

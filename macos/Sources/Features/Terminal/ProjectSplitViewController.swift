@@ -303,6 +303,7 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
     }
 
+    /// Creates the project toolbar items used for sidebar and tab controls.
     func toolbar(
         _ toolbar: NSToolbar,
         itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
@@ -375,6 +376,7 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         hosting.rootView = AnyView(tabStripView())
     }
 
+    /// Returns the current project tab strip, or an empty placeholder.
     private func tabStripView() -> some View {
         Group {
             if let model = tabStripModel {

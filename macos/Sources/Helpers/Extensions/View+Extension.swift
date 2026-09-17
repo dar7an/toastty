@@ -37,6 +37,7 @@ private struct MotionAnimationModifier<Value: Equatable>: ViewModifier {
     let value: Value
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Applies the configured animation unless Reduce Motion is enabled.
     func body(content: Content) -> some View {
         content.animation(reduceMotion ? nil : animation, value: value)
     }
@@ -47,6 +48,7 @@ private struct ToasttyOverlayCardModifier: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
+    /// Applies the shared overlay-card appearance for current accessibility settings.
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
             content

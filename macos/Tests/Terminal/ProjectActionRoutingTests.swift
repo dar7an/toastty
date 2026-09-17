@@ -7,6 +7,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectActionRoutingTests {
+    /// Verifies that project bindings remain printable in unsupported windows.
     @Test(arguments: [false, true])
     func unsupportedWindowsPreserveOptionDigitInput(nativeTabs: Bool) async throws {
         let app = try Self.testApp()

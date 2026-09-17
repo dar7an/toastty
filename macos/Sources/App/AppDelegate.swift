@@ -764,6 +764,7 @@ class AppDelegate: NSObject,
         NSApp.dockTile.display()
     }
 
+    /// Applies a reloaded core configuration to app-level macOS state.
     private func ghosttyConfigDidChange(config: Ghostty.Config) {
         // Update the config we need to store
         self.derivedConfig = DerivedConfig(config)
@@ -926,6 +927,7 @@ class AppDelegate: NSObject,
 
     // MARK: - GhosttyAppDelegate
 
+    /// Finds a regular or quick-terminal surface with the given identifier.
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
         for c in TerminalController.all {
             for view in c.surfaceTree where view.id == uuid {
@@ -1338,6 +1340,7 @@ extension AppDelegate: NSMenuItemValidation {
 // MARK: - Termination Flow
 
 extension AppDelegate {
+    /// Begins application termination, prompting for any running processes.
     func terminate() -> NSApplication.TerminateReply {
         let controllersNeedConfirmation = NSApplication.shared.windows
             .compactMap { $0.windowController as? BaseTerminalController }
@@ -1381,6 +1384,7 @@ extension AppDelegate {
         }
     }
 
+    /// Reviews affected windows in order and completes or cancels termination.
     private func reviewWindows(_ controllers: [BaseTerminalController]) {
         Task {
             for controller in controllers {

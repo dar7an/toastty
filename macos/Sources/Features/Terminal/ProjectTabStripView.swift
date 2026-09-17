@@ -324,6 +324,7 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
     }
 }
 
+/// Builds the project-tab context menu for the supplied terminal window.
 func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     let menu = NSMenu()
     let controller = window.windowController as? TerminalController
@@ -388,6 +389,7 @@ private struct ProjectTabStripShade: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
+    /// Applies the accessible material or opaque background for the tab strip.
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
             content.background(Color(nsColor: .controlBackgroundColor), in: Capsule())

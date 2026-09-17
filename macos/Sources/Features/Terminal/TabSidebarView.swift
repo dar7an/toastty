@@ -193,6 +193,7 @@ final class TabSidebarModel: ObservableObject {
 
     var visibleTabs: [Row] { rows.filter { $0.project.id == selectedProjectID } }
 
+    /// Selects a project's remembered tab, optionally returning focus to it.
     func selectProject(_ id: UUID?, stealFocus: Bool = true) {
         guard let id else { return }
         let tabs = rows.filter { $0.project.id == id }
@@ -229,6 +230,7 @@ final class TabSidebarModel: ObservableObject {
         editingDraft = projectDisplayName(project)
     }
 
+    /// Commits the inline project name, clearing overrides for blank defaults.
     func commitRename() {
         guard let id = editingProjectID else { return }
         let trimmed = editingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -383,6 +385,7 @@ final class TabSidebarModel: ObservableObject {
 
     // MARK: Selection
 
+    /// Selects a sidebar row and optionally returns keyboard focus to its terminal.
     func select(_ id: ObjectIdentifier?, stealFocus: Bool = true) {
         guard let id,
               let tabGroup,
@@ -621,6 +624,7 @@ struct ProjectSidebarListView: View {
         .accessibilityLabel("Projects")
     }
 
+        /// Resolves the controller for a project without changing selection.
         private func projectController(_ project: TerminalProject) -> TerminalController? {
             // Resolve the clicked project without touching global selection,
             // using the same restore target as selection and display.

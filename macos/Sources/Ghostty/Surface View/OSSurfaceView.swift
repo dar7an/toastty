@@ -164,6 +164,7 @@ extension Ghostty.OSSurfaceView {
             }
         }
 
+        /// Writes a nonempty changed search needle to the shared Find pasteboard.
         func writePasteboardNeedle() {
             // Avoid clobbering the shared Find pasteboard with empty or
             // unchanged values during live typing.

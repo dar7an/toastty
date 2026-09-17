@@ -108,6 +108,7 @@ extension Ghostty {
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
+        /// Creates the inspector's Metal view and command queue.
         override init(frame: CGRect, device: MTLDevice?) {
             // Initialize our Metal primitives
             guard
