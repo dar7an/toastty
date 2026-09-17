@@ -5,6 +5,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TabSidebarModelTests {
+    // AppKit can retain attached views past fixture teardown. Keep their core
+    // alive for the process lifetime, as the real application does.
+    private static var directoryFixtureApp: Ghostty.App?
     @Test func directoryFollowsOnlyTheFocusedSplit() async throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -49,8 +52,9 @@ struct TabSidebarModelTests {
     }
 
     @Test func directoryPrefersSelectedTabsLivePwd() async throws {
-        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
+        Self.directoryFixtureApp = app
         let core = try #require(app.app)
         let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha-dir")
         let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
@@ -62,15 +66,21 @@ struct TabSidebarModelTests {
             window.tabbingMode = .preferred
             controller.window = window
             controller.project = project
+            window.contentView = surfaces[index]
             controller.focusedSurface = surfaces[index]
             return controller
         }
         let windows = controllers.compactMap(\.window)
         defer {
-            controllers.forEach { $0.focusedSurface = nil; $0.window = nil }
+            controllers.forEach {
+                $0.focusedSurface = nil
+                $0.window?.contentView = nil
+                $0.window = nil
+            }
             windows.forEach { $0.close() }
         }
         windows[0].addTabbedWindow(windows[1], ordered: .above)
+        windows[0].makeKeyAndOrderFront(nil)
         let group = try #require(windows[0].tabGroup)
         let model = group.tabSidebarModel
         surfaces[0].pwd = "/tmp/first"
@@ -78,11 +88,13 @@ struct TabSidebarModelTests {
         await drainMainQueue()
 
         // The label tracks the tab the project would restore to.
-        model.select(ObjectIdentifier(windows[1]))
+        model.select(ObjectIdentifier(windows[1]), stealFocus: false)
         await drainMainQueue()
+        #expect(group.selectedWindow === windows[1])
         #expect(model.directory(for: controllers[0].project) == "/tmp/second")
-        model.select(ObjectIdentifier(windows[0]))
+        model.select(ObjectIdentifier(windows[0]), stealFocus: false)
         await drainMainQueue()
+        #expect(group.selectedWindow === windows[0])
         #expect(model.directory(for: controllers[0].project) == "/tmp/first")
 
         // When the restore target has no pwd, a sibling tab's live pwd wins.
