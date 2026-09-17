@@ -44,15 +44,6 @@ the inherited work and its authors are documented in
 
 ## See Toastty
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/workspaces-dark.jpg">
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/workspaces-light.jpg">
-  <img src="docs/screenshots/workspaces-light.jpg" alt="Toastty with three projects in the sidebar, two tabs in the selected project, and two terminal panes.">
-</picture>
-
-The same workspace in light and dark appearance, with projects in the sidebar,
-tabs above the terminal, and two panes for parallel work.
-
 <p align="center">
   <img src="docs/screenshots/workspaces-layout-dark.png" alt="Toastty in dark appearance with three projects in the sidebar and three tabs in the selected project.">
 </p>
