@@ -119,4 +119,3 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         try container.encode(selectedTabID, forKey: .selectedTabID)
     }
 }
-

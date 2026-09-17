@@ -40,10 +40,17 @@ struct ProjectWindowLayoutTests {
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
-        let material = try #require(descendants(of: split.sidebarSplitItem.viewController.view)
-            .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar })
-        let materialFrame = material.convert(material.bounds, to: container)
-        #expect(abs(materialFrame.maxY - container.bounds.maxY) < 1)
+        let material = descendants(of: split.sidebarSplitItem.viewController.view)
+            .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar }
+        if #available(macOS 26.0, *) {
+            // The split controller owns the glass; our content must not cover
+            // it with the older sidebar material.
+            #expect(material == nil)
+        } else {
+            let material = try #require(material)
+            let materialFrame = material.convert(material.bounds, to: container)
+            #expect(abs(materialFrame.maxY - container.bounds.maxY) < 1)
+        }
 
         container.initialContentSize = NSSize(width: 800, height: 480)
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)

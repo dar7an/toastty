@@ -28,9 +28,13 @@ struct ProjectSidebarListView: View {
                 Button("New Project") { controller.newProject(nil) }
             }
         }
-        // Extend the sidebar's one material through the traffic-light and
-        // toolbar region, while the list itself respects the safe area.
-        .background(VisualEffectBackground(material: .sidebar).ignoresSafeArea())
+        .background {
+            // NSSplitViewController supplies sidebar glass on macOS 26+.
+            // A legacy visual-effect background would cover that material.
+            if #unavailable(macOS 26.0) {
+                VisualEffectBackground(material: .sidebar).ignoresSafeArea()
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Projects")
     }
