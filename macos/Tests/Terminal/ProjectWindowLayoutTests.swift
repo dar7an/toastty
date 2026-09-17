@@ -40,13 +40,19 @@ struct ProjectWindowLayoutTests {
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
-        let material = try #require(descendants(of: split.sidebarSplitItem.viewController.view)
+        let sidebarView = split.sidebarSplitItem.viewController.view
+        let material = try #require(descendants(of: sidebarView)
             .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar })
-        let materialFrame = material.convert(material.bounds, to: container)
-        // AppKit can extend sidebar material beyond the content bounds (by
-        // 8pt on macOS 26). Require coverage, not identical frame edges.
-        #expect(materialFrame.maxY >= container.bounds.maxY - 1)
-        #expect(materialFrame.minY <= container.bounds.minY + 1)
+        let materialFrame = material.convert(material.bounds, to: sidebarView)
+        // The background must cover its hosting view. AppKit owns the inset
+        // between that view and the window (8pt on macOS 26), so comparing
+        // their edges tests private system layout rather than our background.
+        #expect(sidebarView.bounds.width > 0)
+        #expect(sidebarView.bounds.height > 0)
+        #expect(materialFrame.maxY >= sidebarView.bounds.maxY - 1)
+        #expect(materialFrame.minY <= sidebarView.bounds.minY + 1)
+        #expect(materialFrame.maxX >= sidebarView.bounds.maxX - 1)
+        #expect(materialFrame.minX <= sidebarView.bounds.minX + 1)
 
         container.initialContentSize = NSSize(width: 800, height: 480)
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
