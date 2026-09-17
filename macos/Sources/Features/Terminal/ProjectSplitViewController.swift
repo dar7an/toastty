@@ -126,12 +126,19 @@ final class ProjectSplitViewController: NSSplitViewController {
             model.setVisible(!collapsed)
         }
         if !collapsed {
-            let width = sidebarHostingController.view.frame.width
+            let width = sidebarColumnWidth
             if width >= TabSidebarModel.minWidth,
                abs(width - model.width) >= 0.5 {
                 model.setExpandedWidth(width)
             }
         }
+    }
+
+    /// The divider positions refer to the split column, not its hosted view.
+    /// AppKit may inset sidebar content (notably on macOS 26), so measuring
+    /// that content would gradually shrink the saved width on each layout.
+    var sidebarColumnWidth: CGFloat {
+        splitView.arrangedSubviews.first?.frame.width ?? 0
     }
 
     /// The terminal hosting view, used by `TerminalViewContainer` for
@@ -200,7 +207,7 @@ final class ProjectSplitViewController: NSSplitViewController {
             return
         }
         let targetCollapsed = !state.isVisible
-        let currentWidth = sidebarHostingController.view.frame.width
+        let currentWidth = sidebarColumnWidth
         let widthSettled = targetCollapsed
             || abs(currentWidth - state.expandedWidth) < 0.5
         if sidebarSplitItem.isCollapsed == targetCollapsed && widthSettled {
@@ -266,7 +273,7 @@ final class ProjectSplitViewController: NSSplitViewController {
 /// instance (retained by its split controller) with autosave disabled, so
 /// configuration never propagates to unrelated windows.
 final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
-    static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.ghostty.projectTabStrip")
+    static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.projectTabStrip")
     static let newTabItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.newTab")
 
     private weak var splitController: ProjectSplitViewController?
@@ -296,6 +303,7 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
     }
 
+    /// Creates the project toolbar items used for sidebar and tab controls.
     func toolbar(
         _ toolbar: NSToolbar,
         itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
@@ -319,7 +327,11 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "New Tab"
             item.paletteLabel = "New Tab"
-            item.toolTip = "New Tab (⌘T)"
+            if let shortcut = terminalController?.ghostty.config.keyboardShortcut(for: "new_tab") {
+                item.toolTip = "New Tab (\(shortcut))"
+            } else {
+                item.toolTip = "New Tab"
+            }
             item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")
             item.target = terminalController
             item.action = #selector(TerminalController.newTab(_:))
@@ -364,12 +376,18 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         hosting.rootView = AnyView(tabStripView())
     }
 
+    /// Returns the current project tab strip, or an empty placeholder.
     private func tabStripView() -> some View {
         Group {
             if let model = tabStripModel {
+                let controller = terminalController
                 ProjectTabStripView(
                     model: model,
-                    onSelect: { [weak model] in model?.select($0) })
+                    onSelect: { [weak model] in model?.select($0) },
+                    shortcutHint: { [weak controller] index in
+                        guard index < 9 else { return nil }
+                        return controller?.ghostty.config.keyboardShortcut(for: "goto_tab:\(index + 1)")?.description
+                    })
             } else {
                 EmptyView()
             }

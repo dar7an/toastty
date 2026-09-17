@@ -18,12 +18,12 @@ struct ProjectWindowLayoutTests {
         window.orderFront(nil)
         window.contentView?.layoutSubtreeIfNeeded()
         await drainMainQueue()
-        #expect(abs(split.sidebarSplitItem.viewController.view.frame.width - 260) < 1)
+        #expect(abs(split.sidebarColumnWidth - 260) < 1)
         let item = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
         })
         let host = try #require(item.view)
-        #expect(host.frame.width > 600)
+        #expect(host.frame.width > window.contentLayoutRect.width - split.sidebarColumnWidth - 180)
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })
@@ -40,10 +40,19 @@ struct ProjectWindowLayoutTests {
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
-        let material = try #require(descendants(of: split.sidebarSplitItem.viewController.view)
+        let sidebarView = split.sidebarSplitItem.viewController.view
+        let material = try #require(descendants(of: sidebarView)
             .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar })
-        let materialFrame = material.convert(material.bounds, to: container)
-        #expect(abs(materialFrame.maxY - container.bounds.maxY) < 1)
+        let materialFrame = material.convert(material.bounds, to: sidebarView)
+        // The background must cover its hosting view. AppKit owns the inset
+        // between that view and the window (8pt on macOS 26), so comparing
+        // their edges tests private system layout rather than our background.
+        #expect(sidebarView.bounds.width > 0)
+        #expect(sidebarView.bounds.height > 0)
+        #expect(materialFrame.maxY >= sidebarView.bounds.maxY - 1)
+        #expect(materialFrame.minY <= sidebarView.bounds.minY + 1)
+        #expect(materialFrame.maxX >= sidebarView.bounds.maxX - 1)
+        #expect(materialFrame.minX <= sidebarView.bounds.minX + 1)
 
         container.initialContentSize = NSSize(width: 800, height: 480)
         TerminalController.DefaultSize.contentIntrinsicSize.apply(to: window)
@@ -66,8 +75,20 @@ struct ProjectWindowLayoutTests {
         await drainMainQueue()
         split.splitView.setPosition(280, ofDividerAt: 0)
         await drainMainQueue()
-        #expect(window.tabGroup?.tabSidebarModel.width == 280)
-        #expect(controller.sidebarState?.expandedWidth == 280)
+        #expect(abs(split.sidebarColumnWidth - 280) < 1)
+        #expect(window.tabGroup?.tabSidebarModel.width == split.sidebarColumnWidth)
+        #expect(controller.sidebarState?.expandedWidth == split.sidebarColumnWidth)
+
+        // Reapplying a measured width must not subtract AppKit's content inset
+        // on every layout pass, including after a collapse and expansion.
+        for _ in 0..<3 {
+            split.applySidebarState(SidebarState(isVisible: false, expandedWidth: 280), animated: false)
+            split.applySidebarState(SidebarState(isVisible: true, expandedWidth: 280), animated: false)
+            window.contentView?.layoutSubtreeIfNeeded()
+            await drainMainQueue()
+            #expect(abs(split.sidebarColumnWidth - 280) < 1)
+            #expect(abs((controller.sidebarState?.expandedWidth ?? 0) - 280) < 1)
+        }
     }
 
     @Test func renderedTabCellIncludesItsPadding() {

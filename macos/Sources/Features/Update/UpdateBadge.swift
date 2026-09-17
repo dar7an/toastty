@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A badge view that displays the current state of an update operation.
@@ -37,6 +38,7 @@ struct UpdateBadge: View {
                 Image(systemName: iconName)
                     .rotationEffect(.degrees(rotationAngle))
                     .onAppear {
+                        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
                         withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
                             rotationAngle = 360
                         }
@@ -44,6 +46,7 @@ struct UpdateBadge: View {
                     .onDisappear {
                         rotationAngle = 0
                     }
+                    .accessibilityHidden(true)
             } else {
                 EmptyView()
             }
@@ -77,7 +80,7 @@ private struct ProgressRingView: View {
                 .trim(from: 0, to: progress)
                 .stroke(Color.primary, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.2), value: progress)
+                .motionAnimation(.easeInOut(duration: 0.2), value: progress)
         }
     }
 }

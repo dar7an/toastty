@@ -25,8 +25,11 @@ class TerminalWindow: NSWindow {
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
 
-    /// Update notification UI in titlebar
+    /// Update notification UI in titlebar. Only wired in debug builds until
+    /// Toastty owns a signed update feed.
+    #if DEBUG
     private let updateAccessory = NSTitlebarAccessoryViewController()
+    #endif
 
     /// Visual indicator that mirrors the selected tab color.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
@@ -84,6 +87,7 @@ class TerminalWindow: NSWindow {
         }
     }
 
+    /// Finishes window setup after AppKit loads the terminal window nib.
     override func awakeFromNib() {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
@@ -148,7 +152,9 @@ class TerminalWindow: NSWindow {
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
 
-            // Create update notification accessory
+            // Create update notification accessory (debug only until Toastty
+            // owns a signed update feed).
+            #if DEBUG
             if supportsUpdateAccessory {
                 updateAccessory.layoutAttribute = .right
                 updateAccessory.view = NonDraggableHostingView(rootView: UpdateAccessoryView(
@@ -158,6 +164,7 @@ class TerminalWindow: NSWindow {
                 addTitlebarAccessoryViewController(updateAccessory)
                 updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
             }
+            #endif
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
@@ -232,9 +239,14 @@ class TerminalWindow: NSWindow {
         viewModel.isMainWindow = false
     }
 
+    /// Starts native inline tab-title editing when the window style supports it.
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        tabTitleEditor.beginEditing(for: targetWindow)
+        // Project workspaces hide the native tab bar, so there is no visible
+        // tab button to edit inline. Decline so callers fall back to the
+        // prompt-based rename.
+        guard terminalController?.usesProjectSidebar != true else { return false }
+        return tabTitleEditor.beginEditing(for: targetWindow)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -270,12 +282,15 @@ class TerminalWindow: NSWindow {
             .publisher(for: NSWindow.didEnterFullScreenNotification, object: self)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.hideProjectNativeTabBar() }
-        for index in titlebarAccessoryViewControllers.indices.reversed() {
-            let accessory = titlebarAccessoryViewControllers[index]
-            if accessory === resetZoomAccessory || accessory === updateAccessory {
-                removeTitlebarAccessoryViewController(at: index)
-            }
+        #if DEBUG
+        // Keep the split-zoom accessory so project windows retain the
+        // zoomed indicator and one-click unzoom path; only the update
+        // pill moves out of the project titlebar.
+        for index in titlebarAccessoryViewControllers.indices.reversed()
+            where titlebarAccessoryViewControllers[index] === updateAccessory {
+            removeTitlebarAccessoryViewController(at: index)
         }
+        #endif
     }
 
     override func accessibilityChildren() -> [Any]? {
@@ -392,7 +407,12 @@ class TerminalWindow: NSWindow {
         return childViewController.identifier == Self.tabBarIdentifier
     }
 
+    /// Updates titlebar accessories when AppKit exposes the native tab bar.
     private func tabBarDidAppear() {
+        // Project windows hide the native tab bar, so the titlebar zoom
+        // accessory stays put as the zoomed indicator there.
+        guard terminalController?.usesProjectSidebar != true else { return }
+
         // Remove our reset zoom accessory. For some reason having a SwiftUI
         // titlebar accessory causes our content view scaling to be wrong.
         // Removing it fixes it, we just need to remember to add it again later.
@@ -405,7 +425,6 @@ class TerminalWindow: NSWindow {
     }
 
     private func tabBarDidDisappear() {
-        guard terminalController?.usesProjectSidebar != true else { return }
         if styleMask.contains(.titled) {
             if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
@@ -457,6 +476,7 @@ class TerminalWindow: NSWindow {
 
     private lazy var resetZoomTabButton: NSButton = generateResetZoomButton()
 
+    /// Creates the titlebar control that restores the split layout from zoom.
     private func generateResetZoomButton() -> NSButton {
         let button = NSButton()
         button.isHidden = true
@@ -464,7 +484,8 @@ class TerminalWindow: NSWindow {
         button.action = #selector(TerminalController.splitZoom(_:))
         button.isBordered = false
         button.allowsExpansionToolTips = true
-        button.toolTip = "Reset Zoom"
+        button.toolTip = Self.resetZoomToolTip()
+        button.setAccessibilityLabel("Reset Zoom")
         button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
         button.image = NSImage(named: "ResetZoom")
@@ -473,6 +494,15 @@ class TerminalWindow: NSWindow {
         button.widthAnchor.constraint(equalToConstant: 20).isActive = true
         button.heightAnchor.constraint(equalToConstant: 20).isActive = true
         return button
+    }
+
+    /// Tooltip for the reset-zoom controls, including the configured
+    /// `toggle_split_zoom` shortcut when one is bound.
+    static func resetZoomToolTip() -> String {
+        if let shortcut = (NSApp.delegate as? AppDelegate)?.ghostty.config.keyboardShortcut(for: "toggle_split_zoom") {
+            return "Reset Split Zoom (\(shortcut))"
+        }
+        return "Reset Zoom"
     }
 
     // MARK: Title Text
@@ -796,7 +826,8 @@ extension TerminalWindow {
                             .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Reset Split Zoom")
+                    .help(TerminalWindow.resetZoomToolTip())
+                    .accessibilityLabel("Reset Zoom")
                     .frame(width: 20, height: 20)
                     Spacer()
                 }
@@ -810,6 +841,8 @@ extension TerminalWindow {
     }
 
     /// A pill-shaped button that displays update status and provides access to update actions.
+    /// Debug only until Toastty owns a signed update feed.
+    #if DEBUG
     struct UpdateAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         @ObservedObject var model: UpdateViewModel
@@ -821,6 +854,7 @@ extension TerminalWindow {
                 .padding(.trailing, viewModel.accessoryTopPadding)
         }
     }
+    #endif
 
 }
 
@@ -835,11 +869,14 @@ private struct TabColorIndicatorView: View {
             Circle()
                 .fill(Color(color))
                 .frame(width: 6, height: 6)
+                .accessibilityLabel("Tab color \(tabColor.localizedName)")
+                .accessibilityValue(tabColor.localizedName)
         } else {
             Circle()
                 .fill(Color.clear)
                 .frame(width: 6, height: 6)
                 .hidden()
+                .accessibilityHidden(true)
         }
     }
 }
@@ -900,6 +937,7 @@ extension TerminalWindow {
         return requiredSelectors.isSubset(of: selectorNames)
     }
 
+    /// Adds rename and color controls for the tab targeted by a native menu.
     private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {
         menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
@@ -911,8 +949,8 @@ extension TerminalWindow {
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        // Rename Tab...
-        let changeTitleItem = NSMenuItem(title: "Rename Tab...", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
+        // Rename Tab…
+        let changeTitleItem = NSMenuItem(title: "Rename Tab…", action: #selector(TerminalWindow.renameTabFromContextMenu(_:)), keyEquivalent: "")
         changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
         changeTitleItem.target = self
         changeTitleItem.representedObject = target?.window
@@ -968,11 +1006,17 @@ private func makeTabColorPaletteView(
 // MARK: - Inline Tab Title Editing
 
 extension TerminalWindow: TabTitleEditorDelegate {
+    /// Reports whether the target window supports native inline tab renaming.
     func tabTitleEditor(
         _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool {
-        targetWindow.windowController is BaseTerminalController
+        // Project workspaces hide the native tab bar; inline rename has no
+        // visible target there. The prompt-based fallback handles it instead.
+        guard (targetWindow.windowController as? TerminalController)?.usesProjectSidebar != true else {
+            return false
+        }
+        return targetWindow.windowController is BaseTerminalController
     }
 
     func tabTitleEditor(

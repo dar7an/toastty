@@ -590,6 +590,35 @@ pub const Action = union(enum) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// Open a new project.
+    ///
+    /// Toastty-specific: creates a new project seeded from the active
+    /// terminal's directory. If the application isn't currently focused,
+    /// this will bring it to the front.
+    new_project,
+
+    /// Go to the previous project.
+    ///
+    /// Toastty-specific: switches to the previous project in the sidebar.
+    previous_project,
+
+    /// Go to the next project.
+    ///
+    /// Toastty-specific: switches to the next project in the sidebar.
+    next_project,
+
+    /// Go to the project with the specific index, starting from 1.
+    ///
+    /// Toastty-specific: if the project number is higher than the number
+    /// of projects, this will go to the last project.
+    goto_project: usize,
+
+    /// Toggle the project sidebar.
+    ///
+    /// Toastty-specific: collapses or expands the native project sidebar.
+    /// Only implemented on macOS.
+    toggle_project_sidebar,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -677,6 +706,13 @@ pub const Action = union(enum) {
 
     /// Equalize the size of all splits in the current window.
     equalize_splits,
+
+    /// Move the current split in the specified direction.
+    ///
+    /// Toastty-specific: reorders panes by keyboard. Valid arguments mirror
+    /// `goto_split` (`previous`, `next`, `up`, `left`, `down`, `right`).
+    /// The focused pane is moved next to its neighbor in the given direction.
+    move_split: SplitFocusDirection,
 
     /// Reset the window to the default size. The "default size" is the
     /// size that a new window would be created with. This has no effect
@@ -1450,6 +1486,11 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .move_tab_to_new_window,
+            .new_project,
+            .previous_project,
+            .next_project,
+            .goto_project,
+            .toggle_project_sidebar,
             .toggle_tab_overview,
             .new_split,
             .goto_split,
@@ -1458,6 +1499,7 @@ pub const Action = union(enum) {
             .toggle_readonly,
             .resize_split,
             .equalize_splits,
+            .move_split,
             .inspector,
             => .surface,
         };

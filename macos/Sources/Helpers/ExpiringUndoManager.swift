@@ -132,8 +132,12 @@ private class ExpiringTarget {
         timer = nil
     }
 
+    /// Invalidates the timer without reentering the undo manager during teardown.
     deinit {
-        expire()
+        // At this point neither the undo stack nor expiringTargets owns us.
+        // Calling back into the manager while it releases its target set
+        // re-enters that set's mutation and triggers a Swift exclusivity trap.
+        timer?.invalidate()
     }
 }
 

@@ -46,9 +46,15 @@ struct ProjectTabStripView: View {
     @ObservedObject var model: TabSidebarModel
     var onSelect: (TabSidebarModel.Row.ID) -> Void
 
+    /// Shortcut hint for the tab at a visible index (e.g. the `goto_tab:N`
+    /// key equivalent such as "⌘3"), shown in the tab tooltip. Defaults to
+    /// no hints so plain constructions keep working.
+    var shortcutHint: @MainActor (Int) -> String? = { _ in nil }
+
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
+        .modifier(ProjectTabStripShade())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -66,6 +72,7 @@ struct ProjectTabStripView: View {
                                 isSelected: row.id == model.selection,
                                 onSelect: onSelect,
                                 showSeparator: showsSeparator(at: index),
+                                shortcutHint: shortcutHint(index),
                                 width: Self.cellWidth(
                                     available: geometry.size.width,
                                     count: model.visibleTabs.count)
@@ -117,10 +124,13 @@ struct ProjectTabCell: View {
     let isSelected: Bool
     let onSelect: (TabSidebarModel.Row.ID) -> Void
     let showSeparator: Bool
+    // `var` (not `let`): defaulted `let` properties are excluded from the
+    // synthesized memberwise initializer, which the host below relies on.
+    var shortcutHint: String?
     let width: CGFloat
     var isHovered = false
     @FocusState private var closeFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
@@ -139,6 +149,8 @@ struct ProjectTabCell: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(row.title)
+            .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             Button {
                 (row.window.windowController as? TerminalController)?.closeTab(nil)
@@ -151,7 +163,7 @@ struct ProjectTabCell: View {
             }
             .buttonStyle(.plain)
             .opacity(isCloseVisible ? 1 : 0)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isCloseVisible)
+            .motionAnimation(.easeOut(duration: 0.1), value: isCloseVisible)
             .allowsHitTesting(isCloseVisible)
             .focused($closeFocused)
             .help("Close Tab")
@@ -172,16 +184,18 @@ struct ProjectTabCell: View {
                     .frame(width: 6, height: 6)
                     .padding(.trailing, 11)
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
         .overlay(alignment: .leading) {
             if showSeparator {
                 Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(width: 1, height: 14)
+                    .fill(ProjectChrome.separatorColor)
+                    .frame(width: ProjectChrome.hairline(displayScale: displayScale), height: 14)
+                    .allowsHitTesting(false)
             }
         }
-        .help([row.title, row.pwd].compactMap { $0 }.joined(separator: "\n"))
+        .help([row.title, row.pwd, shortcutHint].compactMap { $0 }.joined(separator: "\n"))
     }
 
 }
@@ -193,11 +207,12 @@ private struct ProjectTabCellHost: NSViewRepresentable {
     let isSelected: Bool
     let onSelect: (TabSidebarModel.Row.ID) -> Void
     let showSeparator: Bool
+    let shortcutHint: String?
     let width: CGFloat
 
     private var cell: ProjectTabCell {
         ProjectTabCell(row: row, isSelected: isSelected, onSelect: onSelect,
-                       showSeparator: showSeparator, width: width)
+                       showSeparator: showSeparator, shortcutHint: shortcutHint, width: width)
     }
 
     func makeNSView(context: Context) -> ProjectTabCellHostingView {
@@ -309,6 +324,7 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
     }
 }
 
+/// Builds the project-tab context menu for the supplied terminal window.
 func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     let menu = NSMenu()
     let controller = window.windowController as? TerminalController
@@ -322,7 +338,21 @@ func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     menu.addItem(ProjectTabMenuItem("Close Tabs to the Right") { [weak controller] in
         controller?.closeTabsOnTheRight(nil)
     })
+    // Same detach action as the native tab menu's `moveTabToNewWindow:`
+    // (NSWindow API, always present where native tabs exist).
+    let moveItem = ProjectTabMenuItem("Move Tab to New Window") { [weak window] in
+        window?.moveTabToNewWindow(nil)
+    }
+    moveItem.isEnabled = (window.tabGroup?.windows.count ?? 0) > 1
+    menu.addItem(moveItem)
     menu.addItem(.separator())
+    if #available(macOS 14.0, *) {
+        menu.addItem(.sectionHeader(title: "Tab Color"))
+    } else {
+        let header = NSMenuItem(title: "Tab Color", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+    }
     let palette = makeProjectTabColorMenu(selected: (window as? TerminalWindow)?.tabColor ?? .none) { [weak window] color in
         (window as? TerminalWindow)?.tabColor = color
     }
@@ -346,6 +376,29 @@ private final class ProjectTabMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func invoke() { handler() }
+}
+
+/// The strip's own bar shade. The project titlebar/toolbar is transparent,
+/// so without it the terminal surface shows through and the strip reads as
+/// part of the terminal. The titlebar material gives the strip a distinct
+/// shade that complements the adjacent sidebar material instead — the same
+/// pairing AppKit draws in an ordinary unified-toolbar window. Reduce
+/// Transparency and Increase Contrast fall back to the same opaque control
+/// background ``ProjectGlass`` uses.
+private struct ProjectTabStripShade: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    /// Applies the accessible material or opaque background for the tab strip.
+    func body(content: Content) -> some View {
+        if reduceTransparency || contrast == .increased {
+            content.background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+        } else {
+            content.background {
+                VisualEffectBackground(material: .titlebar).clipShape(Capsule())
+            }
+        }
+    }
 }
 
 /// Liquid Glass capsule on macOS 26+, material fallback below. Never

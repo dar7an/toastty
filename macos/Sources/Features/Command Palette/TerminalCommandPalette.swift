@@ -63,15 +63,16 @@ struct TerminalCommandPaletteView: View {
             if !newValue {
                 // Has to be on queue because onChange happens on a user-interactive
                 // thread and Xcode is mad about this call on that.
-                DispatchQueue.main.async {
-                    surfaceView.window?.makeFirstResponder(surfaceView)
+                DispatchQueue.main.async { [weak surfaceView] in
+                    guard let surfaceView else { return }
+                    restoreTerminalFocusAfterPalette(surfaceView)
                 }
             }
         }
     }
 
     /// All commands available in the command palette, combining update and terminal options.
-    private var commandOptions: [CommandOption] {
+    var commandOptions: [CommandOption] {
         var options: [CommandOption] = []
         // Updates always appear first
         options.append(contentsOf: updateOptions)
@@ -79,12 +80,26 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: sortedTerminalPaletteOptions(jumpOptions + terminalOptions))
+        options.append(contentsOf: sortedTerminalPaletteOptions(
+            jumpOptions + projectOptions + appearanceOptions + terminalOptions))
         return options
     }
 
+    /// Keep appearance discoverable from the keyboard as well as the View menu.
+    private var appearanceOptions: [CommandOption] {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) else { return [] }
+        return ToasttyAppearance.allCases.map { appearance in
+            CommandOption(title: "Appearance: \(appearance.title)", leadingIcon: "circle.lefthalf.filled") {
+                ToasttyAppearance.saved = appearance
+                controller.ghostty.reloadConfig()
+            }
+        }
+    }
+
     /// Commands for installing or canceling available updates.
+    /// Disabled in release builds until Toastty owns a signed update feed.
     private var updateOptions: [CommandOption] {
+        #if DEBUG
         var options: [CommandOption] = []
 
         guard let updateViewModel else {
@@ -96,7 +111,7 @@ struct TerminalCommandPaletteView: View {
             // convey it'll go all the way through.
             let title: String
             if case .updateAvailable = updateViewModel.state {
-                title = "Update Ghostty and Restart"
+                title = "Update Toastty and Restart"
             } else {
                 title = updateViewModel.text
             }
@@ -122,15 +137,25 @@ struct TerminalCommandPaletteView: View {
         }
 
         return options
+        #else
+        return []
+        #endif
     }
 
     /// Custom commands from the command-palette-entry configuration.
     private var terminalOptions: [CommandOption] {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
-        return appDelegate.ghostty.config.commandPaletteEntries
+        return ghosttyConfig.commandPaletteEntries
             .filter(\.isSupported)
+            .filter { entry in
+                switch entry.action.split(separator: ":").first {
+                case "new_project", "toggle_project_sidebar", "goto_project", "next_project", "previous_project":
+                    return projectController != nil
+                default:
+                    return true
+                }
+            }
             .map { c in
-                let symbols = appDelegate.ghostty.config.keyboardShortcut(for: c.action)?.keyList
+                let symbols = ghosttyConfig.keyboardShortcut(for: c.action)?.keyList
                 return CommandOption(
                     title: c.title,
                     description: c.description,
@@ -148,6 +173,7 @@ struct TerminalCommandPaletteView: View {
 
             let color = (window as? TerminalWindow)?.tabColor
             let displayColor = color != TerminalTabColor.none ? color : nil
+            let projectName = projectDisplayName(controller.project)
 
             return controller.surfaceTree.map { surface in
                 let terminalTitle = surface.title.isEmpty ? window.title : surface.title
@@ -160,11 +186,14 @@ struct TerminalCommandPaletteView: View {
                     displayTitle = "Untitled"
                 }
                 let pwd = surface.pwd?.abbreviatedPath
-                let subtitle: String? = if let pwd, !displayTitle.contains(pwd) {
-                    pwd
-                } else {
-                    nil
+                // Include the project name so identical tab titles across
+                // projects stay distinguishable. Pwd is appended when it adds
+                // information beyond the title.
+                var subtitleParts: [String] = [projectName]
+                if let pwd, !displayTitle.contains(pwd), !projectName.contains(pwd) {
+                    subtitleParts.append(pwd)
                 }
+                let subtitle: String = subtitleParts.joined(separator: " — ")
 
                 return CommandOption(
                     title: "Focus: \(displayTitle)",
@@ -182,6 +211,78 @@ struct TerminalCommandPaletteView: View {
         }
     }
 
+    /// Only the owning workspace can supply project actions. Quick Terminal
+    /// must never fall back to an unrelated background window.
+    private var projectController: TerminalController? {
+        guard let controller = BaseTerminalController.controller(owning: surfaceView) as? TerminalController,
+              controller.usesProjectSidebar else { return nil }
+        return controller
+    }
+
+    /// Contextual project commands complement the configured core commands.
+    private var projectOptions: [CommandOption] {
+        guard let active = projectController else { return [] }
+        var options: [CommandOption] = []
+
+        options.append(CommandOption(
+            title: "Rename Project…",
+            description: "Rename the current project (\(projectDisplayName(active.project)))",
+            leadingIcon: "pencil"
+        ) { [weak active] in active?.promptProjectName(rename: true) })
+
+        options.append(CommandOption(
+            title: "Close Project",
+            description: "Close all tabs in \(projectDisplayName(active.project))",
+            leadingIcon: "folder.badge.minus"
+        ) { [weak active] in active?.closeProject() })
+
+        // Switch to each project, with the current project first for
+        // stable ordering alongside the sorted jump options.
+        if let group = active.window?.tabGroup {
+            let model = group.tabSidebarModel
+            for project in model.projects {
+                let name = projectDisplayName(project)
+                let isCurrent = project.id == active.project.id
+                let directory = model.directory(for: project)
+                options.append(CommandOption(
+                    title: isCurrent ? "Switch Project: \(name) (Current)" : "Switch Project: \(name)",
+                    subtitle: directory,
+                    leadingIcon: isCurrent ? "folder.fill" : "folder"
+                ) { [weak active] in
+                    guard let window = active?.window, let tabGroup = window.tabGroup else { return }
+                    tabGroup.tabSidebarModel.selectProject(project.id, stealFocus: false)
+                })
+            }
+        }
+
+        return options
+    }
+
+}
+
+/// Dismissal must not override focus assigned by the command itself (a rename
+/// field, a sheet, a search field, or a different tab/window).
+@MainActor
+func restoreTerminalFocusAfterPalette(_ surface: Ghostty.SurfaceView) {
+    guard let window = surface.window,
+          window.isKeyWindow,
+          window.attachedSheet == nil,
+          surface.searchState == nil else { return }
+    if let controller = window.windowController as? TerminalController,
+       controller.usesProjectSidebar,
+       window.tabGroup?.tabSidebarModel.editingProjectID != nil {
+        return
+    }
+    // If focus already lives in a text editor (project rename field, tab
+    // rename, search field, or the test's standalone field), don't yank it
+    // back to the terminal. This covers rename sessions whose model hasn't
+    // rebuilt rows yet, where `editingProjectID` alone can't prove editing.
+    if let firstResponder = window.firstResponder, firstResponder !== surface {
+        if firstResponder is NSTextView || firstResponder is NSTextField {
+            return
+        }
+    }
+    window.makeFirstResponder(surface)
 }
 
 /// This is done to ensure that the given view is in the responder chain.

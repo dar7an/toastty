@@ -6,7 +6,7 @@ extension Ghostty {
         // Size of the actual drag handle; the hover reveal region is larger.
         private static let handleSize = CGSize(width: 80, height: 12)
 
-        // Reveal the handle anywhere within the top % of the pane height.
+        // Reveal the handle anywhere within the top % of the split height.
         private static let hoverHeightFactor: CGFloat = 0.2
 
         @ObservedObject var surfaceView: SurfaceView
@@ -24,12 +24,12 @@ extension Ghostty {
             case .auto:
                 break
             }
-            // Handle should always be visible in non-fullscreen
-            guard let window = surfaceView.window else { return true }
-            guard window.styleMask.contains(.fullScreen) else { return true }
-
-            // If fullscreen, only show the handle if we have splits
-            guard let controller = window.windowController as? BaseTerminalController else { return false }
+            // `.auto` mirrors the Linux surface.blp idiom: the handle only
+            // appears when the surface is in a split and can actually be dragged
+            // elsewhere — including outside fullscreen.
+            guard let window = surfaceView.window,
+                  let controller = window.windowController as? BaseTerminalController
+            else { return true }
             return controller.surfaceTree.isSplit
         }
 
@@ -63,7 +63,7 @@ extension Ghostty {
                     )
                     .frame(width: Self.handleSize.width, height: Self.handleSize.height)
                     .contentShape(Rectangle())
-                    .help("Drag this pane to another pane's edge to move and snap it into place.")
+                    .help("Drag this split to another split's edge to move and snap it into place.")
 
                     if ellipsisVisible {
                         Image(systemName: "ellipsis")

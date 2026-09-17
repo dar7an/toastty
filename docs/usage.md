@@ -17,10 +17,15 @@ tabs and remembers the selected tab. Switching projects keeps their shells alive
 - Right-click a tab to rename it, close tabs, split its terminal, or assign a color.
   The circle with a red horizontal line clears the color.
 - Closing a project closes its tabs. Confirm any warning about running processes.
+- `macos-titlebar-style` interacts with the project workspace: `native`,
+  `transparent`, and `tabs` share the project toolbar and tab strip (every
+  project window uses the standard frame; nibs still differ for non-sidebar
+  windows). `hidden` or `macos-tabs-sidebar = false` disables the project
+  sidebar and falls back to the native window-tab layout.
 
 ## Terminal panes
 
-Right-click a terminal or tab for **Split** and **Arrange Pane** controls. Split
+Right-click a terminal or tab for **Split** and **Arrange Splits** controls. Split
 left, right, above, or below; zoom one pane; restore all panes; or equalize sizes.
 Drag the small handle at a pane's top edge onto another pane's edge to move it.
 The outline previews the drop location before you release.
@@ -28,6 +33,28 @@ The outline previews the drop location before you release.
 Dragging a divider snaps near one-third, one-half, and two-thirds. Hold **Option**
 to bypass snapping. Double-click a divider to equalize. These operations arrange
 terminal panes inside Toastty; macOS still controls whole-window tiling.
+
+## Appearance and themes
+
+Toastty follows macOS light and dark appearance by default, including the terminal
+palette. Choose **View → Appearance → System**, **Light**, or **Dark** to switch
+without restarting. The choice is saved for the next launch and applies to all
+windows and Quick Terminal. **Use Configuration** clears the menu override.
+You can also search for **Appearance** in the command palette (⇧⌘P).
+
+The default pair is GitHub Light Default / GitHub Dark Default. To use other
+bundled themes, choose **Toastty → Settings** and add, for example:
+
+```ini
+theme = light:Rose Pine Dawn,dark:Rose Pine
+```
+
+Then choose **Toastty → Reload Configuration** (⇧⌘,). A single `theme = …` keeps
+that terminal palette in both appearances. Explicit `background`, `foreground`,
+and palette settings also take precedence over the default colors. The Appearance
+menu changes which half of a light/dark theme pair is used; it does not erase
+custom colors or rewrite your configuration file. With **Use Configuration**,
+`window-theme` controls the window appearance too.
 
 ## Configuration
 
@@ -49,10 +76,18 @@ the terminal configuration directory is shared by Toastty builds.
 
 ## Updates and support
 
-**Check for Updates** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
+**View Toastty Releases…** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
 Automatic installation is disabled until Toastty has a signed update channel.
 Crash reporting is disabled by default in Toastty builds.
 Toastty never installs an update from Ghostty's appcast.
 
 Report Toastty issues to [dar7an/toastty](https://github.com/dar7an/toastty/issues).
 Do not send fork-specific support requests to Ghostty maintainers.
+
+## Project shortcuts
+
+- ⌘P creates a project; ⌘B shows or hides the sidebar.
+- ⌃⌘Tab switches to the next project; ⇧⌃⌘Tab switches to the previous one.
+- ⌥1–⌥9 selects a project by sidebar position, clamping to the last project.
+  In Quick Terminal or windows without project workspaces, these keys retain
+  their normal terminal input behavior.

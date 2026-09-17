@@ -3374,6 +3374,12 @@ keybind: Keybinds = .{},
 /// squared corners. Changing to or from this option at run-time may affect
 /// existing windows in buggy ways.
 ///
+/// Toastty project workspaces share the project toolbar and tab strip for
+/// "native", "transparent", and "tabs": every project window uses the
+/// standard frame (nibs still differ for non-sidebar windows). "hidden" or
+/// `macos-tabs-sidebar = false` disables the project sidebar and falls back
+/// to the native window-tab layout.
+///
 /// When "hidden", the top titlebar area can no longer be used for dragging
 /// the window. To drag the window, you can use option+click on the resizable
 /// areas of the frame to drag the window. This is a standard macOS behavior
@@ -7176,6 +7182,62 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = 't' }, .mods = .{ .super = true } },
                 .{ .new_tab = {} },
             );
+
+            // Toastty projects
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
+                .{ .new_project = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .tab }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .next_project = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .tab }, .mods = .{ .super = true, .ctrl = true, .shift = true } },
+                .{ .previous_project = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'b' }, .mods = .{ .super = true } },
+                .{ .toggle_project_sidebar = {} },
+            );
+
+            // Opt+N selects a project in workspace windows, but must remain
+            // printable input in Quick Terminal and native-tab windows. A false
+            // action result only falls through when the binding is performable.
+            // Register physical and Unicode digits for different keyboard layouts.
+            // These conditional bindings deliberately stay out of the native-menu
+            // reverse lookup, which would otherwise consume them unconditionally.
+            {
+                const start: u21 = '1';
+                const end: u21 = '9';
+                comptime var i: u21 = start;
+                inline while (i <= end) : (i += 1) {
+                    try self.set.putFlags(
+                        alloc,
+                        .{
+                            .key = .{ .physical = @field(
+                                inputpkg.Key,
+                                std.fmt.comptimePrint("digit_{u}", .{i}),
+                            ) },
+                            .mods = .{ .alt = true },
+                        },
+                        .{ .goto_project = (i - start) + 1 },
+                        .{ .performable = true },
+                    );
+
+                    try self.set.putFlags(
+                        alloc,
+                        .{ .key = .{ .unicode = i }, .mods = .{ .alt = true } },
+                        .{ .goto_project = (i - start) + 1 },
+                        .{ .performable = true },
+                    );
+                }
+            }
+
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .shift = true } },
@@ -7226,6 +7288,29 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .alt = true } },
                 .{ .goto_split = .right },
             );
+
+            // Toastty: moving a split is goto_split with shift held
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .move_split = .up },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .arrow_down }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .move_split = .down },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .move_split = .left },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .arrow_right }, .mods = .{ .super = true, .alt = true, .shift = true } },
+                .{ .move_split = .right },
+            );
+
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .arrow_up }, .mods = .{ .super = true, .ctrl = true } },
@@ -7692,6 +7777,97 @@ pub const Keybinds = struct {
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.written());
+    }
+
+    test "Toastty project keybind defaults" {
+        if (comptime builtin.target.os.tag != .macos) return error.SkipZigTest;
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+        try keybinds.init(alloc);
+
+        const Trigger = inputpkg.Binding.Trigger;
+        const Action = inputpkg.Binding.Action;
+        const modsSuper = inputpkg.Mods{ .super = true };
+
+        // Helper: resolve the action bound to a trigger in the default set.
+        const expectAction = struct {
+            fn call(
+                set: *const inputpkg.Binding.Set,
+                trigger: Trigger,
+                expected: Action,
+            ) !void {
+                const entry = set.get(trigger) orelse return error.MissingBinding;
+                const leaf = entry.value_ptr.*.leaf;
+                try testing.expect(leaf.action.equal(expected));
+            }
+        }.call;
+
+        // Super+P opens a new project, Super+B toggles the project sidebar.
+        try expectAction(&keybinds.set, .{
+            .key = .{ .unicode = 'p' },
+            .mods = modsSuper,
+        }, .{ .new_project = {} });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .unicode = 'b' },
+            .mods = modsSuper,
+        }, .{ .toggle_project_sidebar = {} });
+
+        // Ctrl+Super+Tab cycles projects (shift reverses).
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .tab },
+            .mods = .{ .super = true, .ctrl = true },
+        }, .{ .next_project = {} });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .tab },
+            .mods = .{ .super = true, .ctrl = true, .shift = true },
+        }, .{ .previous_project = {} });
+
+        // Both forms must be conditional so unsupported windows keep text input.
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .digit_1 },
+            .mods = .{ .alt = true },
+        }, .{ .goto_project = 1 });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .unicode = '9' },
+            .mods = .{ .alt = true },
+        }, .{ .goto_project = 9 });
+        for ([_]Trigger{
+            .{ .key = .{ .physical = .digit_1 }, .mods = .{ .alt = true } },
+            .{ .key = .{ .unicode = '1' }, .mods = .{ .alt = true } },
+            .{ .key = .{ .physical = .digit_9 }, .mods = .{ .alt = true } },
+            .{ .key = .{ .unicode = '9' }, .mods = .{ .alt = true } },
+        }) |trigger| {
+            try testing.expect(keybinds.set.get(trigger).?.value_ptr.leaf.flags.performable);
+        }
+        try testing.expect(keybinds.set.getTrigger(.{ .goto_project = 9 }) == null);
+
+        // Opt+N must not collide with tab navigation (Super+N on macOS).
+        try expectAction(&keybinds.set, .{
+            .key = .{ .unicode = '1' },
+            .mods = modsSuper,
+        }, .{ .goto_tab = 1 });
+
+        // Super+Opt+Shift+arrows move the focused split.
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .arrow_up },
+            .mods = .{ .super = true, .alt = true, .shift = true },
+        }, .{ .move_split = .up });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .arrow_down },
+            .mods = .{ .super = true, .alt = true, .shift = true },
+        }, .{ .move_split = .down });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .arrow_left },
+            .mods = .{ .super = true, .alt = true, .shift = true },
+        }, .{ .move_split = .left });
+        try expectAction(&keybinds.set, .{
+            .key = .{ .physical = .arrow_right },
+            .mods = .{ .super = true, .alt = true, .shift = true },
+        }, .{ .move_split = .right });
     }
 
     test "parseCLI table definition" {

@@ -26,7 +26,7 @@ extension Ghostty {
                 if !surfaceView.inspectorVisible {
                     SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                 } else {
-                    SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
+                    SplitView(.vertical, $split, dividerColor: ghostty.config.configuredSplitDividerColor ?? ProjectChrome.separatorColor, left: {
                         SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                     }, right: {
                         InspectorViewRepresentable(surfaceView: surfaceView)
@@ -108,6 +108,7 @@ extension Ghostty {
         // We need to support being a first responder so that we can get input events
         override var acceptsFirstResponder: Bool { return true }
 
+        /// Creates the inspector's Metal view and command queue.
         override init(frame: CGRect, device: MTLDevice?) {
             // Initialize our Metal primitives
             guard
@@ -130,6 +131,11 @@ extension Ghostty {
 
             // Setup our tracking areas for mouse events
             updateTrackingAreas()
+
+            // Expose the custom Metal inspector to VoiceOver.
+            setAccessibilityLabel("Terminal inspector")
+            setAccessibilityHelp("Shows terminal internals for debugging")
+            setAccessibilityRole(.group)
 
             // Observe occlusion state to pause rendering when not visible
             NotificationCenter.default.addObserver(

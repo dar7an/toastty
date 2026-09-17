@@ -29,8 +29,11 @@ struct SplitView<L: View, R: View>: View {
 
     /// The visible size of the splitter, in points. The invisible size is a transparent hitbox that can still
     /// be used for getting a resize handle. The total width/height of the splitter is the sum of both.
-    private let splitterVisibleSize: CGFloat = 1
+    private var splitterVisibleSize: CGFloat {
+        ProjectChrome.hairline(displayScale: displayScale)
+    }
     private let splitterInvisibleSize: CGFloat = 6
+    @Environment(\.displayScale) private var displayScale
 
     @State private var coordinateSpaceID = UUID()
     @State private var dragStartRatio: CGFloat?
@@ -60,7 +63,7 @@ struct SplitView<L: View, R: View>: View {
                         split: $split)
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size))
-                    .help("Drag to resize; hold Option to avoid snapping. Double-click to equalize panes.")
+                    .help("Drag to resize; hold Option to avoid snapping. Double-click to equalize splits.")
                     .onTapGesture(count: 2) {
                         onEqualize()
                     }
@@ -148,12 +151,12 @@ struct SplitView<L: View, R: View>: View {
             // For horizontal layouts we offset the starting X by the left rect
             // and make the width fit the remaining space.
             result.origin.x += leftRect.size.width
-            result.origin.x += splitterVisibleSize / 2
+            result.origin.x += splitterVisibleSize
             result.size.width -= result.origin.x
 
         case .vertical:
             result.origin.y += leftRect.size.height
-            result.origin.y += splitterVisibleSize / 2
+            result.origin.y += splitterVisibleSize
             result.size.height -= result.origin.y
         }
 
@@ -162,12 +165,17 @@ struct SplitView<L: View, R: View>: View {
 
     /// Calculates the point at which the splitter should be rendered.
     private func splitterPoint(for size: CGSize, leftRect: CGRect) -> CGPoint {
+        // The divider is positioned at the center of the `splitterVisibleSize`-wide
+        // gap. The gap sits entirely to the right/below `leftRect`'s
+        // integer-floored edge so the hairline covers exactly one physical
+        // pixel — a line centered on an integer-point boundary straddles two
+        // pixels on Retina and renders soft.
         switch direction {
         case .horizontal:
-            return CGPoint(x: leftRect.size.width, y: size.height / 2)
+            return CGPoint(x: leftRect.size.width + splitterVisibleSize / 2, y: size.height / 2)
 
         case .vertical:
-            return CGPoint(x: size.width / 2, y: leftRect.size.height)
+            return CGPoint(x: size.width / 2, y: leftRect.size.height + splitterVisibleSize / 2)
         }
     }
 
@@ -185,18 +193,18 @@ struct SplitView<L: View, R: View>: View {
     private var leftPaneLabel: String {
         switch direction {
         case .horizontal:
-            return "Left pane"
+            return "Left split"
         case .vertical:
-            return "Top pane"
+            return "Top split"
         }
     }
 
     private var rightPaneLabel: String {
         switch direction {
         case .horizontal:
-            return "Right pane"
+            return "Right split"
         case .vertical:
-            return "Bottom pane"
+            return "Bottom split"
         }
     }
 }

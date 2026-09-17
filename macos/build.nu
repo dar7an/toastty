@@ -19,9 +19,14 @@ def main [
         []
     }
 
+    # xcodebuild needs TMPDIR to evaluate xcframework file references; without
+    # it builds fail with a misleading "no XCFramework found" error.
+    let tmpdir = $env.TMPDIR? | default "" | if $in == "" { "/tmp" } else { $in }
+
     (^env -i
         $"HOME=($env.HOME)"
         "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
+        $"TMPDIR=($tmpdir)"
         xcodebuild
         -project $project
         -scheme $scheme

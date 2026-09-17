@@ -4,6 +4,7 @@ struct SecureInputOverlay: View {
     // Animations
     @State private var gradientAngle: Angle = .degrees(0)
     @State private var gradientOpacity: CGFloat = 0.5
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // Popover explainer text
     @State private var isPopover = false
@@ -13,53 +14,58 @@ struct SecureInputOverlay: View {
             HStack {
                 Spacer()
 
-                Image(systemName: "lock.shield.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 25, height: 25)
-                    .foregroundColor(.primary)
-                    .padding(5)
-                    .background(
-                        Rectangle()
-                            .fill(.background)
-                            .overlay(
-                                Rectangle()
-                                    .fill(
-                                        AngularGradient(
-                                            gradient: Gradient(
-                                                colors: [.cyan, .blue, .yellow, .blue, .cyan]
-                                            ),
-                                            center: .center,
-                                            angle: gradientAngle
+                Button {
+                    isPopover = true
+                } label: {
+                    Image(systemName: "lock.shield.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 25, height: 25)
+                        .foregroundColor(.primary)
+                        .padding(5)
+                        .background(
+                            Rectangle()
+                                .fill(.background)
+                                .overlay(
+                                    Rectangle()
+                                        .fill(
+                                            AngularGradient(
+                                                gradient: Gradient(
+                                                    colors: [.cyan, .blue, .yellow, .blue, .cyan]
+                                                ),
+                                                center: .center,
+                                                angle: gradientAngle
+                                            )
                                         )
-                                    )
-                                    .blur(radius: 4, opaque: true)
-                                    .mask(
-                                        RadialGradient(
-                                            colors: [.clear, .black],
-                                            center: .center,
-                                            startRadius: 0,
-                                            endRadius: 25
+                                        .blur(radius: 4, opaque: true)
+                                        .mask(
+                                            RadialGradient(
+                                                colors: [.clear, .black],
+                                                center: .center,
+                                                startRadius: 0,
+                                                endRadius: 25
+                                            )
                                         )
-                                    )
-                                    .opacity(gradientOpacity)
-                             )
-                    )
-                    .mask(RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.gray, lineWidth: 1)
-                    )
-                    .onTapGesture {
-                        isPopover = true
-                    }
-                    .backport.pointerStyle(.link)
+                                        .opacity(gradientOpacity)
+                                 )
+                        )
+                        .mask(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.gray, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
+                .accessibilityLabel("Secure Input is active")
+                .accessibilityHint("Shows why Secure Input is enabled")
+                .help("Secure Input is active. Show details.")
                     .popover(isPresented: $isPopover, arrowEdge: .bottom) {
                         Text("""
                         Secure Input is active. Secure Input is a macOS security feature that
                         prevents applications from reading keyboard events. This is enabled
-                        automatically whenever Ghostty detects a password prompt in the terminal,
-                        or at all times if `Ghostty > Secure Keyboard Entry` is active.
+                        automatically whenever Toastty detects a password prompt in the terminal,
+                        or at all times if `Toastty > Secure Keyboard Entry` is active.
                         """)
                         .padding(.all)
                     }
@@ -70,6 +76,7 @@ struct SecureInputOverlay: View {
             Spacer()
         }
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(Animation.linear(duration: 2).repeatForever(autoreverses: false)) {
                 gradientAngle = .degrees(360)
             }

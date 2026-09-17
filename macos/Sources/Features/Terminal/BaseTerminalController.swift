@@ -139,6 +139,7 @@ class BaseTerminalController: NSWindowController,
         fatalError("init(coder:) is not supported for this view")
     }
 
+    /// Creates a terminal window controller with optional restored project state.
     init(_ ghostty: Ghostty.App,
          baseConfig base: Ghostty.SurfaceConfiguration? = nil,
          surfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil
@@ -210,6 +211,11 @@ class BaseTerminalController: NSWindowController,
             self,
             selector: #selector(ghosttyDidResizeSplit(_:)),
             name: Ghostty.Notification.didResizeSplit,
+            object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidMoveSplit(_:)),
+            name: Ghostty.Notification.ghosttyMoveSplit,
             object: nil)
         center.addObserver(
             self,
@@ -406,6 +412,7 @@ class BaseTerminalController: NSWindowController,
         return await alert.beginSheetModal(for: window)
     }
 
+    /// Presents a close confirmation and invokes the completion after approval.
     func confirmClose(
         messageText: String,
         informativeText: String,
@@ -413,8 +420,9 @@ class BaseTerminalController: NSWindowController,
         completion: @escaping () -> Void
     ) {
         Task {
+            // A nil response means another alert is already presented.
+            // Never auto-approve a second close; wait for the first decision.
             guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
-                completion()
                 return
             }
             if [.alertFirstButtonReturn, .OK].contains(response) {
@@ -423,12 +431,12 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    /// Prompt the user to change the tab/window title.
+    /// Prompt the user to rename the tab. Blank restores the default title.
     func promptTabTitle() {
         guard let window else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Change Tab Title"
+        alert.messageText = "Rename Tab"
         alert.informativeText = "Leave blank to restore the default."
         alert.alertStyle = .informational
 
@@ -485,8 +493,8 @@ class BaseTerminalController: NSWindowController,
         // so SwiftUI does not update any of the bindings to note that window is no longer
         // being shown, and provides no callback to detect this.
         confirmClose(
-            messageText: "Close Terminal?",
-            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+            messageText: "Close Split?",
+            informativeText: "This split still has a running process. If you close the split, the process will be killed."
         ) { [weak self] in
             if let self {
                 self.removeSurfaceNode(node)
@@ -515,6 +523,10 @@ class BaseTerminalController: NSWindowController,
     /// This also updates the undo manager to support restoring this node.
     ///
     /// This does no confirmation and assumes confirmation is already done.
+    ///
+    /// Only non-root (true split) nodes may reach here: the TerminalController
+    /// and QuickTerminalController overrides divert root closes to tab/window
+    /// teardown, which is what keeps the "Close Split" undo label accurate.
     private func removeSurfaceNode(_ node: SplitTree<Ghostty.SurfaceView>.Node) {
         // Move focus if the closed surface was focused and we have a next target
         let nextFocus: Ghostty.SurfaceView? = if node.contains(
@@ -533,7 +545,8 @@ class BaseTerminalController: NSWindowController,
             // This is a weird workaround, since `resignFirstResponder` wasn't called on `focusedSurface` after drag,
             // but the first responder became the window itself.
             moveFocusTo: nextFocus ?? focusedSurface,
-            undoAction: "Close Terminal"
+            moveFocusFrom: focusedSurface,
+            undoAction: "Close Split"
         )
     }
 
@@ -788,6 +801,66 @@ class BaseTerminalController: NSWindowController,
         } catch {
             Ghostty.logger.warning("failed to resize split: \(error, privacy: .public)")
         }
+    }
+
+    /// Reorders the notified split relative to its directional neighbor.
+    @objc private func ghosttyDidMoveSplit(_ notification: Notification) {
+        // The target must be within our tree
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
+        guard surfaceTree.isSplit else { return }
+
+        // Get the direction from the notification
+        guard let directionAny = notification.userInfo?[Ghostty.Notification.MoveSplitDirectionKey] else { return }
+        guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
+
+        // Previous/next cycle through creation order; directional moves use
+        // the spatially adjacent pane. Both reuse the drag-drop move path so
+        // keyboard reorder matches mouse reorder without touching the drag source.
+        let destination: Ghostty.SurfaceView?
+        let insertDirection: SplitTree<Ghostty.SurfaceView>.NewDirection
+        switch direction {
+        case .previous, .next:
+            let order: SplitTree<Ghostty.SurfaceView>.FocusDirection = direction == .previous ? .previous : .next
+            guard let next = surfaceTree.focusTarget(for: order, from: targetNode) else { return }
+            destination = next
+            // Insert on the matching side so previous/next swaps neighbors.
+            insertDirection = direction == .previous ? .left : .right
+        case .up:
+            guard let next = surfaceTree.focusTarget(for: .spatial(.up), from: targetNode) else { return }
+            destination = next
+            insertDirection = .up
+        case .down:
+            guard let next = surfaceTree.focusTarget(for: .spatial(.down), from: targetNode) else { return }
+            destination = next
+            insertDirection = .down
+        case .left:
+            guard let next = surfaceTree.focusTarget(for: .spatial(.left), from: targetNode) else { return }
+            destination = next
+            insertDirection = .left
+        case .right:
+            guard let next = surfaceTree.focusTarget(for: .spatial(.right), from: targetNode) else { return }
+            destination = next
+            insertDirection = .right
+        }
+
+        guard let destination else { return }
+        guard destination !== target else { return }
+
+        let treeWithoutSource = surfaceTree.removing(targetNode)
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try treeWithoutSource.inserting(view: target, at: destination, direction: insertDirection)
+        } catch {
+            Ghostty.logger.warning("failed to move split: \(error, privacy: .public)")
+            return
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: target,
+            moveFocusFrom: focusedSurface,
+            undoAction: "Move Split")
     }
 
     @objc private func ghosttyDidPresentTerminal(_ notification: Notification) {
@@ -1213,14 +1286,15 @@ class BaseTerminalController: NSWindowController,
     // This is called when performClose is called on a window (NOT when close()
     // is called directly). performClose is called primarily when UI elements such
     // as the "red X" are pressed.
+    /// Allows a window close immediately or starts process-close confirmation.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !windowCanBeClosedWithoutConfirmation() else {
             return true
         }
         // We require confirmation, so show an alert as long as we aren't already.
         confirmClose(
-            messageText: "Close Terminal?",
-            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+            messageText: "Close Window?",
+            informativeText: "This window still has a running process. If you close the window, the process will be killed."
         ) { [weak self] in
             self?.window?.close()
         }

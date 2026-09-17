@@ -21,19 +21,19 @@ pub const Options = struct {
     }
 };
 
-/// The `edit-config` command opens the Ghostty configuration file in the
+/// The `edit-config` command opens the Toastty configuration file in the
 /// editor specified by the `$VISUAL` or `$EDITOR` environment variables.
 ///
 /// IMPORTANT: This command will not reload the configuration after
 /// editing. You will need to manually reload the configuration using the
-/// application menu, configured keybind, or by restarting Ghostty. We
-/// plan to auto-reload in the future, but Ghostty isn't capable of
+/// application menu, configured keybind, or by restarting Toastty. We
+/// plan to auto-reload in the future, but Toastty isn't capable of
 /// this yet.
 ///
 /// The filepath opened is the default user-specific configuration
-/// file, which is typically located at `$XDG_CONFIG_HOME/ghostty/config.ghostty`.
+/// file, which is typically located at `$XDG_CONFIG_HOME/toastty/config`.
 /// On macOS, this may also be located at
-/// `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`.
+/// `~/Library/Application Support/com.dar7an.toastty/config`.
 /// On macOS, whichever path exists and is non-empty will be prioritized,
 /// prioritizing the Application Support directory if neither are
 /// non-empty.
@@ -101,7 +101,7 @@ fn runInner(alloc: Allocator, stderr: *std.Io.Writer) !u8 {
             error.NoEditorConfigured => {
                 try stderr.print(
                     \\The $EDITOR or $VISUAL environment variable is not set or is empty.
-                    \\This environment variable is required to edit the Ghostty configuration
+                    \\This environment variable is required to edit the Toastty configuration
                     \\via this CLI command.
                     \\
                     \\Please set the environment variable to your preferred terminal

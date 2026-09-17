@@ -808,6 +808,11 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
+            // Toastty-specific, macOS-only
+            .new_project,
+            .goto_project,
+            .toggle_project_sidebar,
+            .move_split,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

@@ -125,18 +125,20 @@ struct CommandPaletteView: View {
                     break
                 }
             }
-            .onChange(of: query) { newValue in
-                // If the user types a query then we want to make sure the first
-                // value is selected. If the user clears the query and we were selecting
-                // the first, we unset any selection.
-                if !newValue.isEmpty {
-                    if selectedIndex == nil {
-                        selectedIndex = 0
-                    }
-                } else {
-                    if let selectedIndex, selectedIndex == 0 {
-                        self.selectedIndex = nil
-                    }
+            .onChange(of: query) { _ in
+                // Default to the first result whenever the query changes and
+                // nothing is selected, so keyboard users can always submit.
+                if selectedIndex == nil && !filteredOptions.isEmpty {
+                    selectedIndex = 0
+                }
+                // Clamp a stale selection after filtering.
+                if let selectedIndex, selectedIndex >= filteredOptions.count {
+                    self.selectedIndex = filteredOptions.isEmpty ? nil : UInt(filteredOptions.count - 1)
+                }
+            }
+            .onAppear {
+                if selectedIndex == nil && !filteredOptions.isEmpty {
+                    selectedIndex = 0
                 }
             }
 
@@ -257,9 +259,10 @@ private struct CommandTable: View {
 
     var body: some View {
         if options.isEmpty {
-            Text("No matches")
+            Text(query.isEmpty ? "No matches" : "No matches for \"\(query)\"")
                 .foregroundStyle(.secondary)
                 .padding()
+                .accessibilityLabel(query.isEmpty ? "No matches" : "No matches for \(query)")
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -407,6 +410,10 @@ private struct CommandRow: View {
         }
         .help(option.description ?? "")
         .buttonStyle(.plain)
+        .accessibilityLabel(option.title)
+        .accessibilityValue(option.subtitle ?? option.description ?? "")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Activates \(option.title)")
         .onHover { hovering in
             hoveredID = hovering ? option.id : nil
         }

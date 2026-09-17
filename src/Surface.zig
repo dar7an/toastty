@@ -5374,6 +5374,32 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .new_project => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .new_project,
+            {},
+        ),
+
+        inline .previous_project,
+        .next_project,
+        .goto_project,
+        => |v, tag| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .goto_project,
+            switch (tag) {
+                .previous_project => .previous,
+                .next_project => .next,
+                .goto_project => @enumFromInt(v),
+                else => comptime unreachable,
+            },
+        ),
+
+        .toggle_project_sidebar => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_project_sidebar,
+            {},
+        ),
+
         .new_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,
@@ -5427,6 +5453,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .surface = self },
             .equalize_splits,
             {},
+        ),
+
+        .move_split => |direction| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .move_split,
+            switch (direction) {
+                inline else => |tag| @field(
+                    apprt.action.MoveSplit,
+                    @tagName(tag),
+                ),
+            },
         ),
 
         .toggle_split_zoom => return try self.rt_app.performAction(

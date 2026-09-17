@@ -357,6 +357,19 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// Open a new project (Toastty-specific, macOS).
+    new_project,
+
+    /// Jump to a specific project (Toastty-specific, macOS). Must handle
+    /// the scenario that the project value is invalid.
+    goto_project: GotoProject,
+
+    /// Toggle the project sidebar (Toastty-specific, macOS).
+    toggle_project_sidebar,
+
+    /// Move the current split in the given direction (Toastty-specific).
+    move_split: MoveSplit,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -428,6 +441,10 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        new_project,
+        goto_project,
+        toggle_project_sidebar,
+        move_split,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -576,6 +593,31 @@ pub const GotoTab = enum(c_int) {
     // test "ghostty.h GotoTab" {
     //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
     // }
+};
+
+/// The project to jump to (Toastty-specific). Mirrors GotoTab: negative
+/// values are special, positive values are 1-based project numbers
+/// (matching the `goto_project:N` keybind parameter).
+pub const GotoProject = enum(c_int) {
+    previous = -1,
+    next = -2,
+    last = -3,
+    _,
+};
+
+/// The direction to move a split (Toastty-specific). Mirrors GotoSplit.
+pub const MoveSplit = enum(c_int) {
+    previous,
+    next,
+
+    up,
+    left,
+    down,
+    right,
+
+    test "ghostty.h MoveSplit" {
+        try lib.checkGhosttyHEnum(MoveSplit, "GHOSTTY_MOVE_SPLIT_");
+    }
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.
