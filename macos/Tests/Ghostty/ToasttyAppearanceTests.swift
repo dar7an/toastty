@@ -8,6 +8,9 @@ import GhosttyKit
 @Suite(.serialized)
 struct ToasttyAppearanceTests {
     @Test func defaultsFollowSystemAndSwitchTerminalPalette() throws {
+        let savedAppearance = ToasttyAppearance.saved
+        ToasttyAppearance.saved = nil
+        defer { ToasttyAppearance.saved = savedAppearance }
         let file = try TemporaryConfig("")
         let app = Ghostty.App(configPath: file.temporaryFile.path)
         let core = try #require(app.app)
@@ -20,6 +23,34 @@ struct ToasttyAppearanceTests {
         #expect(!NSColor(app.config.backgroundColor).isLightColor)
         ghostty_app_set_color_scheme(core, GHOSTTY_COLOR_SCHEME_LIGHT)
         #expect(NSColor(app.config.backgroundColor).isLightColor)
+    }
+
+    @Test func nativeMenuPersistsChoicesAndReloadsConfiguration() throws {
+        let delegate = try #require(NSApp.delegate as? AppDelegate)
+        let viewMenu = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu)
+        let menu = try #require(viewMenu.items.first { $0.title == "Appearance" }?.submenu)
+        let savedAppearance = ToasttyAppearance.saved
+        defer {
+            ToasttyAppearance.saved = savedAppearance
+            delegate.ghostty.reloadConfig()
+        }
+
+        for appearance in ToasttyAppearance.allCases {
+            let item = try #require(menu.items.first { $0.representedObject as? String == appearance.rawValue })
+            let action = try #require(item.action)
+            #expect(item.target === delegate)
+            delegate.perform(action, with: item)
+            #expect(ToasttyAppearance.saved == appearance)
+            #expect(delegate.ghostty.config.windowTheme == appearance.rawValue)
+            #expect(delegate.validateMenuItem(item))
+            #expect(item.state == .on)
+        }
+
+        let configured = try #require(menu.items.first { $0.title == "Use Configuration" })
+        delegate.perform(try #require(configured.action), with: configured)
+        #expect(ToasttyAppearance.saved == nil)
+        #expect(delegate.validateMenuItem(configured))
+        #expect(configured.state == .on)
     }
 
     @Test(arguments: ToasttyAppearance.allCases)
