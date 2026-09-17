@@ -12,7 +12,8 @@ struct ProjectSidebarListView: View {
                     projectRow(project)
                         .tag(project.id)
                         .help(projectHelp(project))
-                        .accessibilityLabel(projectAccessibilityLabel(project))
+                        .accessibilityLabel(model.editingProjectID == project.id
+                            ? "Project name" : projectAccessibilityLabel(project))
                         .contextMenu {
                             Button("Rename Project…") { model.beginRename(projectID: project.id) }
                             Button("Close Project") { projectController(project)?.closeProject() }
