@@ -40,7 +40,7 @@ struct TerminalRestorableTests {
     @MainActor
     @Test func projectIdentityAndSelectionSurviveEncoding() throws {
         let tabID = UUID()
-        var project = TerminalProject(name: "Named workspace")
+        var project = TerminalProject(name: "Named workspace", emoji: "🧪", color: .teal)
         project.selectedTabID = tabID
         let tree = try SplitTreeTests.makeHorizontalSplit().0
         let state = TerminalRestorableState.InternalState(
@@ -50,6 +50,8 @@ struct TerminalRestorableTests {
         let encoded = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(TerminalRestorableState.InternalState<MockView>.self, from: encoded)
         #expect(decoded.project == project)
+        #expect(decoded.project?.emoji == "🧪")
+        #expect(decoded.project?.color == .teal)
         #expect(decoded.projectTabID == tabID)
         #expect(decoded.surfaceTree.count == tree.count)
     }
@@ -62,6 +64,8 @@ struct TerminalRestorableTests {
         #expect(decoded.nameOverride == "Old Name")
         #expect(decoded.displayName == "Old Name")
         #expect(decoded.automaticName == "Terminal")
+        #expect(decoded.emoji == nil)
+        #expect(decoded.color == .none)
     }
 
     @MainActor

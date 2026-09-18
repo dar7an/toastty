@@ -44,6 +44,7 @@ struct ProjectTabStripView: View {
     }
 
     @ObservedObject var model: TabSidebarModel
+    @StateObject private var dragSession = TerminalLayoutDragSession()
     var onSelect: (TabSidebarModel.Row.ID) -> Void
 
     /// Shortcut hint for the tab at a visible index (e.g. the `goto_tab:N`
@@ -87,6 +88,10 @@ struct ProjectTabStripView: View {
                 .modifier(ProjectTabScrollPosition(target: Binding(get: { model.selection }, set: { _ in })))
                 .background(.quaternary.opacity(0.45), in: Capsule())
                 .overlay(Capsule().strokeBorder(.primary.opacity(0.06), lineWidth: 0.5))
+                .contentShape(Capsule())
+                .onDrop(
+                    of: [.toasttyTerminalLayoutID, .ghosttySurfaceId],
+                    delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
                 .onAppear { revealSelection(proxy) }
                 .onChange(of: model.selection) { _ in revealSelection(proxy) }
                 .onChange(of: model.visibleTabs.map(\.id)) { _ in revealSelection(proxy) }
@@ -118,6 +123,18 @@ struct ProjectTabStripView: View {
 
 }
 
+/// Tabs reorder along the rail; merging happens by dropping into a pane.
+enum ProjectTabDropState: Equatable {
+    case idle
+    case before
+    case after
+
+    static func calculate(atX x: CGFloat, width: CGFloat) -> Self {
+        guard width.isFinite, width > 0, x.isFinite else { return .idle }
+        return x < width / 2 ? .before : .after
+    }
+}
+
 /// A complete cell owns its hover/focus state and its row-local context menu.
 struct ProjectTabCell: View {
     let row: TabSidebarModel.Row
@@ -131,6 +148,8 @@ struct ProjectTabCell: View {
     var isHovered = false
     @FocusState private var closeFocused: Bool
     @Environment(\.displayScale) private var displayScale
+    @State private var dropState: ProjectTabDropState = .idle
+    @StateObject private var dragSession = TerminalLayoutDragSession()
 
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
@@ -149,6 +168,7 @@ struct ProjectTabCell: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityHint("Drag to reorder this tab or drop it into another terminal split.")
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -195,9 +215,192 @@ struct ProjectTabCell: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay {
+            switch TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
+                ? dropState : .idle {
+            case .idle:
+                EmptyView()
+            case .before:
+                ProjectTabDropIndicator(alignment: .leading)
+            case .after:
+                ProjectTabDropIndicator(alignment: .trailing)
+            }
+        }
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [.toasttyTerminalLayoutID, .ghosttySurfaceId],
+            delegate: ProjectTabCellDropDelegate(
+                row: row,
+                width: width,
+                dropState: $dropState,
+                session: dragSession))
+        .motionAnimation(.easeOut(duration: 0.12), value: dropState)
         .help([row.title, row.pwd, shortcutHint].compactMap { $0 }.joined(separator: "\n"))
     }
 
+}
+
+private struct ProjectTabDropIndicator: View {
+    let alignment: Alignment
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.accentColor)
+            .frame(width: 2, height: 22)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct ProjectTabCellDropDelegate: DropDelegate {
+    let row: TabSidebarModel.Row
+    let width: CGFloat
+    @Binding var dropState: ProjectTabDropState
+    let session: TerminalLayoutDragSession
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+    }
+
+    func dropEntered(info: DropInfo) {
+        dropState = .calculate(atX: info.location.x, width: width)
+        session.begin(info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId]))
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dropState = .calculate(atX: info.location.x, width: width)
+        return DropProposal(operation:
+            TerminalLayoutCoordinator.shared.canDropInTabBar(session.payload, beside: row.window) ? .move : .forbidden)
+    }
+
+    func dropExited(info: DropInfo) {
+        dropState = .idle
+        session.end()
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let position = ProjectTabDropState.calculate(atX: info.location.x, width: width)
+        dropState = .idle
+        guard position != .idle else { return false }
+
+        if let payload = session.payload {
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: row.window) else { return false }
+            session.end()
+            commit(payload, at: position)
+            return true
+        }
+
+        // A fast drop can land before the session's asynchronous payload
+        // publish; load the providers directly and commit on completion.
+        return session.finishDrop(
+            info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+        ) { payload in
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: self.row.window) else { return }
+            self.commit(payload, at: position)
+        }
+    }
+
+    private func commit(_ payload: TerminalLayoutDragPayload, at position: ProjectTabDropState) {
+        guard let target = row.window.windowController as? TerminalController else { return }
+        let coordinator = TerminalLayoutCoordinator.shared
+
+        switch payload {
+        case .tab(let sourceID):
+            switch position {
+            case .before, .after:
+                reorderTab(sourceID, into: target, after: position == .after)
+            case .idle:
+                break
+            }
+
+        case .surface(let surfaceID):
+            // A tab cell is the tab-bar surface, not a split pane. A pane
+            // dropped here becomes a new tab, including when it is dropped
+            // back onto the tab it came from.
+            guard let targetIndex = target.projectTabWindows.firstIndex(of: row.window) else { return }
+            let insertionIndex: Int = switch position {
+            case .before: targetIndex
+            case .after, .idle: targetIndex + 1
+            }
+            coordinator.extractSurface(
+                surfaceID,
+                beside: target.projectTabID,
+                insertionIndex: insertionIndex)
+        }
+    }
+
+    private func reorderTab(
+        _ sourceID: UUID,
+        into target: TerminalController,
+        after: Bool
+    ) {
+        guard let source = TerminalController.all.first(where: { $0.projectTabID == sourceID }),
+              let sourceWindow = source.window,
+              let targetIndex = target.projectTabWindows.firstIndex(of: row.window),
+              let sourceIndex = target.projectTabWindows.firstIndex(of: sourceWindow),
+              source.project.id == target.project.id,
+              sourceWindow.tabGroup === row.window.tabGroup,
+              sourceWindow !== row.window else { return }
+
+        let insertionIndex = after ? targetIndex + 1 : targetIndex
+        let finalIndex = insertionIndex - (sourceIndex < insertionIndex ? 1 : 0)
+        TerminalLayoutCoordinator.shared.reorderTab(sourceID, toProjectIndex: finalIndex)
+    }
+}
+
+private struct ProjectTabStripDropDelegate: DropDelegate {
+    @ObservedObject var model: TabSidebarModel
+    let session: TerminalLayoutDragSession
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+    }
+
+    func dropEntered(info: DropInfo) {
+        session.begin(info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId]))
+    }
+
+    func dropExited(info: DropInfo) { session.end() }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        let valid = model.visibleTabs.last.map {
+            TerminalLayoutCoordinator.shared.canDropInTabBar(session.payload, beside: $0.window)
+        } ?? false
+        return DropProposal(operation: valid ? .move : .forbidden)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let targetRow = model.visibleTabs.last,
+              targetRow.window.windowController is TerminalController else { return false }
+
+        if let payload = session.payload {
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: targetRow.window) else { return false }
+            session.end()
+            commit(payload, beside: targetRow)
+            return true
+        }
+
+        // A fast drop can land before the session's asynchronous payload
+        // publish; load the providers directly and commit on completion.
+        return session.finishDrop(
+            info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+        ) { payload in
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: targetRow.window) else { return }
+            self.commit(payload, beside: targetRow)
+        }
+    }
+
+    private func commit(_ payload: TerminalLayoutDragPayload, beside targetRow: TabSidebarModel.Row) {
+        guard let target = targetRow.window.windowController as? TerminalController else { return }
+        switch payload {
+        case .tab(let sourceID):
+            TerminalLayoutCoordinator.shared.reorderTab(
+                sourceID, toProjectIndex: max(0, target.projectTabWindows.count - 1))
+        case .surface(let surfaceID):
+            TerminalLayoutCoordinator.shared.extractSurface(
+                surfaceID, beside: target.projectTabID, insertionIndex: target.projectTabWindows.count)
+        }
+    }
 }
 
 /// A native host keeps right-clicks inside the tab instead of allowing the
@@ -229,9 +432,106 @@ private struct ProjectTabCellHost: NSViewRepresentable {
     }
 }
 
-private final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
+final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     private var hoverTrackingArea: NSTrackingArea?
     private var tabIsHovered = false
+    private var mouseDownPoint: NSPoint?
+    private var pressedClose = false
+    private let tabDragSource = ProjectTabDragSource()
+    private var reorderGesture: ProjectTabReorderGesture?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window {
+            reorderGesture?.finish(commit: false, animated: false)
+            reorderGesture = nil
+            mouseDownPoint = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    // One native handler owns click-versus-drag arbitration. SwiftUI's
+    // onDrag on a Button inside a toolbar can consume the initial click.
+    override func mouseDown(with event: NSEvent) {
+        guard !event.modifierFlags.contains(.control) else {
+            rightMouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        mouseDownPoint = point
+        pressedClose = closeButtonRect.contains(point)
+        setHovered(true)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard mouseDownPoint != nil else { return }
+        mouseDownPoint = nil
+        if let reorderGesture {
+            self.reorderGesture = nil
+            reorderGesture.finish(commit: true)
+            setHovered(false)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        if pressedClose {
+            if closeButtonRect.contains(point) {
+                (rootView.row.window.windowController as? TerminalController)?.closeTab(nil)
+            }
+        } else {
+            rootView.onSelect(rootView.row.id)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let origin = mouseDownPoint, !pressedClose,
+              let controller = rootView.row.window.windowController as? TerminalController else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
+        // Stay attached to the rail for horizontal reordering, like Finder.
+        // Crossing out of the rail deliberately starts a pane-transfer drag.
+        if abs(point.y - origin.y) <= 28 {
+            if reorderGesture == nil {
+                reorderGesture = ProjectTabReorderGesture(source: self)
+                reorderGesture?.onCancel = { [weak self] in
+                    self?.mouseDownPoint = nil
+                    self?.reorderGesture = nil
+                    self?.setHovered(false)
+                }
+            }
+            if let reorderGesture {
+                setHovered(false)
+                // AppKit scrolls an overflowing rail at its edges while the
+                // drag remains captured by this cell.
+                _ = autoscroll(with: event)
+                let scrolledPoint = convert(event.locationInWindow, from: nil)
+                reorderGesture.update(translation: scrolledPoint.x - origin.x)
+                return
+            }
+        }
+        reorderGesture?.finish(commit: false, animated: false)
+        reorderGesture = nil
+        mouseDownPoint = nil
+        let pasteboard = NSPasteboardItem()
+        guard let data = try? JSONEncoder().encode(TerminalLayoutDragPayload.tab(controller.projectTabID)) else { return }
+        pasteboard.setData(data, forType: .toasttyTerminalLayoutID)
+        let item = NSDraggingItem(pasteboardWriter: pasteboard)
+        setHovered(false)
+        layoutSubtreeIfNeeded()
+        let image = NSImage(size: bounds.size)
+        if let bitmap = bitmapImageRepForCachingDisplay(in: bounds) {
+            cacheDisplay(in: bounds, to: bitmap)
+            image.addRepresentation(bitmap)
+        }
+        item.setDraggingFrame(bounds.offsetBy(dx: point.x - origin.x, dy: point.y - origin.y), contents: image)
+        tabDragSource.onEnd = { [weak self] in self?.setHovered(false) }
+        beginDraggingSession(with: [item], event: event, source: tabDragSource)
+    }
+
+    private var closeButtonRect: NSRect {
+        NSRect(x: 4, y: (bounds.height - 22) / 2, width: ProjectTabStripView.closeButtonWidth, height: 22)
+    }
 
     func update(_ cell: ProjectTabCell) {
         var cell = cell
@@ -268,6 +568,20 @@ private final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTa
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = menu(for: event) else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+}
+
+/// NSHostingView has its own sealed SwiftUI drag-source implementation.
+/// Keep our native session's delegate separate from that implementation.
+private final class ProjectTabDragSource: NSObject, NSDraggingSource {
+    var onEnd: (() -> Void)?
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .withinApplication ? .move : []
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        onEnd?()
     }
 }
 
@@ -363,7 +677,7 @@ func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     return menu
 }
 
-private final class ProjectTabMenuItem: NSMenuItem {
+final class ProjectTabMenuItem: NSMenuItem {
     private let handler: () -> Void
 
     init(_ title: String, handler: @escaping () -> Void) {
@@ -378,18 +692,14 @@ private final class ProjectTabMenuItem: NSMenuItem {
     @objc private func invoke() { handler() }
 }
 
-/// The strip's own bar shade. The project titlebar/toolbar is transparent,
-/// so without it the terminal surface shows through and the strip reads as
-/// part of the terminal. The titlebar material gives the strip a distinct
-/// shade that complements the adjacent sidebar material instead — the same
-/// pairing AppKit draws in an ordinary unified-toolbar window. Reduce
-/// Transparency and Increase Contrast fall back to the same opaque control
-/// background ``ProjectGlass`` uses.
+/// Keep the titlebar material inside the rounded tab rail. A rectangular
+/// material behind this toolbar item leaves visible square corners around
+/// the capsule, especially in dark appearance.
 private struct ProjectTabStripShade: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
-    /// Applies the accessible material or opaque background for the tab strip.
+    /// Applies the accessible material or opaque background for the tabbar.
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
             content.background(Color(nsColor: .controlBackgroundColor), in: Capsule())

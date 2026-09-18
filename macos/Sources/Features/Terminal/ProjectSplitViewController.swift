@@ -34,7 +34,7 @@ final class ProjectSplitViewController: NSSplitViewController {
     /// split controller owns it; the delegate points back weakly.
     private(set) var toolbarDelegate: ProjectToolbarDelegate!
 
-    private var model: TabSidebarModel?
+    private(set) var model: TabSidebarModel?
     private var modelCancellable: AnyCancellable?
     private var windowCancellable: AnyCancellable?
     private var tabGroupCancellable: AnyCancellable?
@@ -152,13 +152,19 @@ final class ProjectSplitViewController: NSSplitViewController {
     /// the controller's pending state; tabs moved into an existing group
     /// adopt that group here.
     func bind(to model: TabSidebarModel?, animated: Bool) {
+        guard self.model !== model else { return }
         modelCancellable = nil
         self.model = model
-        guard let model, let controller = terminalController else { return }
+        guard let model, let controller = terminalController else {
+            sidebarHostingController.rootView = AnyView(EmptyView())
+            toolbarDelegate?.updateTabStripModel(nil)
+            return
+        }
         pendingInitialState = model.sidebarState
         controller.sidebarState = model.sidebarState
         sidebarHostingController.rootView = AnyView(
-            ProjectSidebarListView(model: model, controller: controller))
+            ProjectSidebarListView(model: model, controller: controller)
+                .id(ObjectIdentifier(model)))
         toolbarDelegate?.updateTabStripModel(model)
         modelCancellable = model.$sidebarState
             .receive(on: DispatchQueue.main)
@@ -170,29 +176,26 @@ final class ProjectSplitViewController: NSSplitViewController {
         applySidebarState(model.sidebarState, animated: animated)
     }
 
-    /// Observes AppKit tab-group membership so a tab dragged into another
-    /// group adopts the destination group's sidebar state. The group bound
-    /// by `bind(to:animated:)` is skipped to avoid re-applying on load.
+    /// Reconcile against current membership after AppKit finishes tabbing.
+    /// Queued KVO values can describe an intermediate or already-empty group;
+    /// never let one rebind the sidebar and toolbar to an obsolete model.
     func beginObservingTabGroup() {
         guard let controller = terminalController else { return }
-        var lastGroupID: ObjectIdentifier? = controller.window?.tabGroup.map(ObjectIdentifier.init)
         windowCancellable = controller.publisher(for: \.window)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] window in
+            .sink { [weak self, weak controller] _ in
                 guard let self else { return }
-                guard let window else {
-                    self.tabGroupCancellable = nil
+                self.tabGroupCancellable = nil
+                guard let window = controller?.window else {
+                    self.bind(to: nil, animated: false)
                     return
                 }
                 self.tabGroupCancellable = window.publisher(for: \.tabGroup)
                     .receive(on: DispatchQueue.main)
-                    .sink { [weak self] group in
-                        guard let self else { return }
-                        let groupID = group.map(ObjectIdentifier.init)
-                        if groupID != lastGroupID {
-                            lastGroupID = groupID
-                            self.bind(to: group?.tabSidebarModel, animated: false)
-                        }
+                    .sink { [weak self, weak window] _ in
+                        guard let self, let window,
+                              self.terminalController?.window === window else { return }
+                        self.bind(to: window.tabGroup?.tabSidebarModel, animated: false)
                     }
             }
     }

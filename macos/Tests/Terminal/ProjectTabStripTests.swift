@@ -36,4 +36,28 @@ struct ProjectTabStripTests {
         #expect(ProjectTabStripView.cellWidth(available: 0, count: 4) == ProjectTabStripView.minCellWidth)
         #expect(ProjectTabStripView.cellWidth(available: -50, count: 2) == ProjectTabStripView.minCellWidth)
     }
+
+    @Test func dropCompletesAfterLatePayloadLoad() async {
+        // performDrop can arrive before begin's asynchronous publish; the
+        // delegates then load the providers directly and commit on finish.
+        let session = TerminalLayoutDragSession()
+        let payload = TerminalLayoutDragPayload.surface(UUID())
+        session.begin([payload.itemProvider()])
+        var committed: TerminalLayoutDragPayload?
+        let accepted = session.finishDrop([payload.itemProvider()]) { committed = $0 }
+        #expect(accepted)
+        for _ in 0..<5 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        #expect(committed == payload)
+        // The session ended, so its pending publish cannot revive the drag.
+        #expect(session.payload == nil)
+    }
+
+    @Test func dropWithoutProvidersIsRejected() {
+        let session = TerminalLayoutDragSession()
+        #expect(session.finishDrop([]) { _ in } == false)
+    }
 }

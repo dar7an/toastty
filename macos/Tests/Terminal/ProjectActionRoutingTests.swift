@@ -132,6 +132,168 @@ struct ProjectActionRoutingTests {
         #expect(window.firstResponder !== view)
     }
 
+    @Test func newTabsHaveProjectStateBeforeTheirFirstRender() async throws {
+        let app = try Self.testApp()
+        let view = Ghostty.SurfaceView(try #require(app.app))
+        let parent = TerminalController(app, withSurfaceTree: .init(view: view), usesProjectSidebar: true)
+        let window = makeWindow(parent, views: [view])
+        window.tabbingMode = .preferred
+        parent.project = TerminalProject(name: "Workspace", directory: "/tmp")
+        defer { tearDown(parent, window: window) }
+        let model = try #require(window.tabGroup?.tabSidebarModel)
+        // Deliberately do not drain the main queue: this is the first frame.
+        #expect(model.projects.map(\.id) == [parent.project.id])
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer { tearDown(tab, window: tabWindow) }
+        #expect(tabWindow.tabGroup === window.tabGroup)
+        #expect(model.rows.count == 2)
+        #expect(model.projects.map(\.id) == [parent.project.id])
+        #expect(model.editingProjectID == nil)
+        #expect(model.editingProjectEmojiID == nil)
+        await drainMainQueue()
+        let split = try #require((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController)
+        #expect(split.model === tabWindow.tabGroup?.tabSidebarModel)
+        #expect(split.model?.projects.map(\.id) == [parent.project.id])
+    }
+
+    @Test func nativeTabDragPreviewsThenCommitsOneReorder() async throws {
+        let app = try Self.testApp()
+        let view = Ghostty.SurfaceView(try #require(app.app))
+        let parent = TerminalController(app, withSurfaceTree: .init(view: view), usesProjectSidebar: true)
+        let window = makeWindow(parent, views: [view])
+        window.tabbingMode = .preferred
+        defer { tearDown(parent, window: window) }
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer { tearDown(tab, window: tabWindow) }
+        tabWindow.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        let strip = try #require(tabWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        func cells(in view: NSView) -> [ProjectTabCellHostingView] {
+            view.subviews.flatMap { ($0 as? ProjectTabCellHostingView).map { [$0] } ?? cells(in: $0) }
+        }
+        let cell = try #require(cells(in: strip).first { $0.rootView.row.window === window })
+        #expect(cell.bounds.width > 0)
+        let preview = try #require(ProjectTabReorderGesture(source: cell))
+        preview.update(translation: cell.bounds.width * 0.8)
+        #expect(preview.targetIndex == 1)
+        #expect(window.tabGroup?.windows == [window, tabWindow])
+        preview.finish(commit: false, animated: false)
+        #expect(window.tabGroup?.windows == [window, tabWindow])
+
+        let start = cell.convert(NSPoint(x: cell.bounds.midX, y: cell.bounds.midY), to: nil)
+        let end = NSPoint(x: start.x + cell.bounds.width * 0.8, y: start.y)
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: tabWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        cell.mouseDown(with: try event(.leftMouseDown, start))
+        cell.mouseDragged(with: try event(.leftMouseDragged, end))
+        #expect(window.tabGroup?.windows == [window, tabWindow])
+        cell.mouseUp(with: try event(.leftMouseUp, end))
+        await drainMainQueue()
+        #expect(window.tabGroup?.windows == [tabWindow, window])
+        #expect((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController?.model?.projects.count == 1)
+    }
+
+    @Test func layoutTransferClosesLastPaneSourceAndRestoresItOnUndo() async throws {
+        let app = try Self.testApp()
+        let core = try #require(app.app)
+        let first = Ghostty.SurfaceView(core)
+        let second = Ghostty.SurfaceView(core)
+        let source = TerminalController(app, withSurfaceTree: .init(view: first), usesProjectSidebar: true)
+        let target = LayoutTestController(app, withSurfaceTree: .init(view: second), usesProjectSidebar: true)
+        let sourceWindow = makeWindow(source, views: [first])
+        let targetWindow = makeWindow(target, views: [second])
+        sourceWindow.tabbingMode = .preferred
+        targetWindow.tabbingMode = .preferred
+        target.project = source.project
+        sourceWindow.addTabbedWindow(targetWindow, ordered: .above)
+        source.focusedSurface = first
+        target.focusedSurface = second
+        let sourceID = source.projectTabID
+        defer {
+            target.testUndoManager.removeAllActions()
+            for restored in TerminalController.all where restored.projectTabID == sourceID && restored !== source {
+                if let window = restored.window { tearDown(restored, window: window) }
+            }
+            tearDown(source, window: sourceWindow)
+            tearDown(target, window: targetWindow)
+        }
+        let coordinator = TerminalLayoutCoordinator.shared
+        #expect(coordinator.proposal(for: .surface(first.id), on: first, zone: .right)?.isValid == false)
+        #expect(coordinator.canDropInTabBar(.surface(first.id), beside: targetWindow) == false)
+        let project = target.project
+        target.project = TerminalProject(directory: "/another-project")
+        #expect(coordinator.proposal(for: .surface(first.id), on: second, zone: .right)?.isValid == false)
+        target.project = project
+        #expect(coordinator.proposal(for: .surface(first.id), on: second, zone: .right)?.isValid == true)
+        let undo = target.testUndoManager
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        coordinator.move(payload: .surface(first.id), into: second, zone: .right)
+        undo.endUndoGrouping()
+        #expect(source.surfaceTree.isEmpty)
+        #expect(target.surfaceTree.count == 2)
+        #expect(!sourceWindow.isVisible)
+        #expect(targetWindow.tabGroup?.windows.contains(sourceWindow) != true)
+        undo.undo()
+        await drainMainQueue()
+        let restored = try #require(TerminalController.all.first { $0.projectTabID == sourceID && $0 !== source })
+        #expect(restored.surfaceTree.contains(first))
+        #expect(restored.project.id == project.id)
+        #expect(target.surfaceTree.count == 1)
+        #expect(target.surfaceTree.contains(second))
+        undo.redo()
+        await drainMainQueue()
+        #expect(target.surfaceTree.count == 2)
+    }
+
+    @Test func moveUndoSkipsWhenSourceWindowClosed() async throws {
+        let app = try Self.testApp()
+        let core = try #require(app.app)
+        let first = Ghostty.SurfaceView(core)
+        let second = Ghostty.SurfaceView(core)
+        let extra = Ghostty.SurfaceView(core)
+        // A two-pane source keeps its window open when one pane moves away.
+        let sourceTree = try SplitTree(view: first).inserting(view: extra, at: first, direction: .right)
+        let source = LayoutTestController(app, withSurfaceTree: sourceTree, usesProjectSidebar: true)
+        let target = LayoutTestController(app, withSurfaceTree: .init(view: second), usesProjectSidebar: true)
+        let sourceWindow = makeWindow(source, views: [first, extra])
+        let targetWindow = makeWindow(target, views: [second])
+        sourceWindow.tabbingMode = .preferred
+        targetWindow.tabbingMode = .preferred
+        target.project = source.project
+        sourceWindow.addTabbedWindow(targetWindow, ordered: .above)
+        defer {
+            target.testUndoManager.removeAllActions()
+            tearDown(source, window: sourceWindow)
+            tearDown(target, window: targetWindow)
+        }
+        let undo = target.testUndoManager
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        TerminalLayoutCoordinator.shared.move(payload: .surface(extra.id), into: second, zone: .right)
+        undo.endUndoGrouping()
+        #expect(target.surfaceTree.count == 2)
+        #expect(target.surfaceTree.contains(extra))
+        #expect(source.surfaceTree.count == 1)
+
+        // The undo manager retains its handler, so a closed source window
+        // does not remove the action. Running it must skip both restores:
+        // the destination restore alone would drop the moved surface while
+        // the source restore lands in a dead window.
+        sourceWindow.close()
+        undo.undo()
+        await drainMainQueue()
+        #expect(target.surfaceTree.count == 2)
+        #expect(target.surfaceTree.contains(extra))
+    }
+
     private func drainMainQueue() async {
         for _ in 0..<5 {
             await withCheckedContinuation { continuation in
@@ -160,6 +322,9 @@ struct ProjectActionRoutingTests {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         controller.window = window
+        // Production nibs wire the controller as the window delegate; mirror
+        // that here so close lifecycle hooks (windowWillClose) fire in tests.
+        window.delegate = controller
         for view in views { window.contentView?.addSubview(view) }
         return window
     }
@@ -196,6 +361,11 @@ struct ProjectActionRoutingTests {
 }
 
 private final class PaneTestController: BaseTerminalController {
+    let testUndoManager = ExpiringUndoManager()
+    override var undoManager: ExpiringUndoManager? { testUndoManager }
+}
+
+private final class LayoutTestController: TerminalController {
     let testUndoManager = ExpiringUndoManager()
     override var undoManager: ExpiringUndoManager? { testUndoManager }
 }

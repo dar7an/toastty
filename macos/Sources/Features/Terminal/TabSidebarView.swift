@@ -14,6 +14,8 @@ struct TerminalProject: Codable, Equatable, Identifiable {
     var directory: String?
     var nameOverride: String?
     var selectedTabID: UUID?
+    var emoji: String?
+    var color: TerminalTabColor
 
     /// Legacy-compatible display name. Prefer `displayName` in new code.
     var name: String {
@@ -54,22 +56,35 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         id: UUID = UUID(),
         directory: String? = nil,
         nameOverride: String? = nil,
-        selectedTabID: UUID? = nil
+        selectedTabID: UUID? = nil,
+        emoji: String? = nil,
+        color: TerminalTabColor = .none
     ) {
         self.id = id
         self.directory = directory
         self.nameOverride = nameOverride
         self.selectedTabID = selectedTabID
+        self.emoji = Self.normalizedEmoji(emoji)
+        self.color = color
     }
 
     /// Legacy initializer: pre-directory projects were identified by name,
     /// which is preserved as the override.
-    init(id: UUID = UUID(), name: String, selectedTabID: UUID? = nil, directory: String? = nil) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        selectedTabID: UUID? = nil,
+        directory: String? = nil,
+        emoji: String? = nil,
+        color: TerminalTabColor = .none
+    ) {
         self.init(
             id: id,
             directory: directory,
             nameOverride: name.isEmpty ? nil : name,
-            selectedTabID: selectedTabID)
+            selectedTabID: selectedTabID,
+            emoji: emoji,
+            color: color)
     }
 
     /// Copy with a new selected tab.
@@ -86,12 +101,34 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         directory = pwd
     }
 
+    /// Returns one emoji grapheme cluster, or nil for the default icon.
+    /// Character Viewer can insert composed sequences such as skin-tone and
+    /// ZWJ emoji, so validation must use grapheme count rather than scalar or
+    /// UTF-16 length.
+    static func normalizedEmoji(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `isEmoji` alone accepts ASCII digits and symbols like "#": they
+        // carry the Emoji property but default to text presentation. Require
+        // a scalar that renders as emoji, either by default or via U+FE0F.
+        guard candidate.count == 1,
+              candidate.unicodeScalars.contains(where: { $0.properties.isEmoji }),
+              candidate.unicodeScalars.contains(where: {
+                  $0.properties.isEmojiPresentation || $0.value == 0xFE0F
+              }) else {
+            return nil
+        }
+        return candidate.precomposedStringWithCanonicalMapping
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name
         case nameOverride
         case directory
         case selectedTabID
+        case emoji
+        case color
     }
 
     init(from decoder: any Decoder) throws {
@@ -108,6 +145,15 @@ struct TerminalProject: Codable, Equatable, Identifiable {
             nameOverride = nil
         }
         selectedTabID = try container.decodeIfPresent(UUID.self, forKey: .selectedTabID)
+        emoji = Self.normalizedEmoji(try container.decodeIfPresent(String.self, forKey: .emoji))
+        // An unknown stored value (e.g. a color added by a newer build) must
+        // not fail the whole project's decode: raw enum decoding throws
+        // before the nil fallback, so decode the raw value lossily.
+        if let rawColor = try container.decodeIfPresent(Int.self, forKey: .color) {
+            color = TerminalTabColor(rawValue: rawColor) ?? .none
+        } else {
+            color = .none
+        }
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -120,6 +166,8 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         try container.encode(nameOverride, forKey: .nameOverride)
         try container.encode(directory, forKey: .directory)
         try container.encode(selectedTabID, forKey: .selectedTabID)
+        try container.encode(emoji, forKey: .emoji)
+        try container.encode(color, forKey: .color)
     }
 }
 
@@ -154,6 +202,9 @@ extension NSWindowTabGroup {
         let model = TabSidebarModel(tabGroup: self)
         objc_setAssociatedObject(
             self, &Self.tabSidebarModelKey, model, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        // Seed before the first SwiftUI render. Later KVO rebuilds remain
+        // deferred so they never replace observations inside their callback.
+        model.refresh()
         return model
     }
 }
@@ -184,6 +235,10 @@ final class TabSidebarModel: ObservableObject {
     /// switch during double-click doesn't destroy the editor.
     @Published var editingProjectID: UUID?
     @Published var editingDraft: String = ""
+    /// Emoji editor state is also shared because the sidebar row can be rebuilt
+    /// while the Character Viewer is open.
+    @Published var editingProjectEmojiID: UUID?
+    @Published var editingProjectEmojiDraft: String = ""
     private var lastProjectClick: (id: UUID, timestamp: TimeInterval)?
 
     var projects: [TerminalProject] {
@@ -224,6 +279,7 @@ final class TabSidebarModel: ObservableObject {
 
     func beginRename(projectID: UUID) {
         guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        if editingProjectEmojiID != nil { cancelProjectEmojiEdit() }
         lastProjectClick = nil
         selectProject(projectID)
         editingProjectID = projectID
@@ -264,6 +320,63 @@ final class TabSidebarModel: ObservableObject {
         restoreTerminalFocus()
     }
 
+    // MARK: Project Appearance
+
+    /// Opens the emoji editor for a project and makes that project visible.
+    /// The draft is kept on the shared model so row rebuilds cannot discard it.
+    func beginProjectEmojiEdit(projectID: UUID) {
+        guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        if editingProjectID != nil { commitRename() }
+        if editingProjectEmojiID != nil { cancelProjectEmojiEdit() }
+        selectProject(projectID)
+        editingProjectEmojiID = projectID
+        editingProjectEmojiDraft = project.emoji ?? ""
+    }
+
+    /// Commits a valid emoji draft. Empty input restores the default folder
+    /// icon; invalid input is left in place so the editor can show the error.
+    func commitProjectEmojiEdit() {
+        guard let projectID = editingProjectEmojiID else { return }
+        let trimmed = editingProjectEmojiDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized: String?
+        if trimmed.isEmpty {
+            normalized = nil
+        } else if let value = TerminalProject.normalizedEmoji(trimmed) {
+            normalized = value
+        } else {
+            return
+        }
+
+        updateProject(projectID) { project in
+            project.emoji = normalized
+        }
+        editingProjectEmojiID = nil
+        editingProjectEmojiDraft = ""
+        restoreTerminalFocus()
+    }
+
+    func cancelProjectEmojiEdit() {
+        guard editingProjectEmojiID != nil else { return }
+        editingProjectEmojiID = nil
+        editingProjectEmojiDraft = ""
+        restoreTerminalFocus()
+    }
+
+    /// Project color uses the same palette as tab color, but is copied to all
+    /// tabs belonging to this project rather than to one terminal window.
+    func setProjectColor(_ color: TerminalTabColor, for projectID: UUID) {
+        updateProject(projectID) { project in
+            project.color = color
+        }
+    }
+
+    func resetProjectAppearance(for projectID: UUID) {
+        updateProject(projectID) { project in
+            project.emoji = nil
+            project.color = .none
+        }
+    }
+
     /// Abbreviated directory for a project: the live pwd of its selected
     /// tab's focused surface, else any tab's live pwd, else the fixed
     /// creation directory for projects whose shells have not reported yet.
@@ -295,6 +408,27 @@ final class TabSidebarModel: ObservableObject {
         guard let window = tabGroup?.selectedWindow,
               let controller = window.windowController as? TerminalController else { return }
         window.makeFirstResponder(controller.focusedSurface)
+    }
+
+    /// Applies one project metadata change to every tab in the project. The
+    /// model's rows are snapshots, so refresh once after the batch assignment.
+    private func updateProject(
+        _ projectID: UUID,
+        _ update: (inout TerminalProject) -> Void
+    ) {
+        guard let tabGroup else { return }
+        var changed = false
+        for window in tabGroup.windows {
+            guard let controller = window.windowController as? TerminalController,
+                  controller.project.id == projectID else { continue }
+            var project = controller.project
+            let previous = project
+            update(&project)
+            guard project != previous else { continue }
+            controller.project = project
+            changed = true
+        }
+        if changed { refresh() }
     }
 
     /// Source of truth for sidebar visibility and width. New independent
@@ -353,7 +487,9 @@ final class TabSidebarModel: ObservableObject {
         let initialWidth = persistedWidth > 0
             ? min(Self.maxWidth, max(Self.minWidth, persistedWidth))
             : Self.defaultWidth
-        self.sidebarState = SidebarState(isVisible: true, expandedWidth: initialWidth)
+        let inherited = (tabGroup.selectedWindow?.windowController as? TerminalController)?.sidebarState
+            ?? tabGroup.windows.compactMap { ($0.windowController as? TerminalController)?.sidebarState }.first
+        self.sidebarState = inherited ?? SidebarState(isVisible: true, expandedWidth: initialWidth)
 
         // `.initial` triggers the first row build. Rebuilds are deferred one
         // main-queue turn because replacing an observation inside its own
@@ -571,50 +707,47 @@ struct ProjectSidebarListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.projects.isEmpty {
-                // Empty state for the 220pt sidebar: first-run hint that
-                // wires directly to project creation.
-                VStack(spacing: 8) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.secondary)
-                    Text("No Projects")
-                        .font(.headline)
-                    Text("Projects keep related tabs together.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("New Project") {
-                        controller.promptProjectName()
-                    }
-                    .buttonStyle(.link)
-                    .accessibilityLabel("Create a new project")
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("No projects. Create a new project to organize tabs.")
-            } else {
-                List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
-                    ForEach(model.projects) { project in
-                        projectRow(project)
-                            .tag(project.id)
-                            .help(projectHelp(project))
-                            .accessibilityLabel(projectAccessibilityLabel(project))
-                            .contextMenu {
-                                Button("Rename Project…") { model.beginRename(projectID: project.id) }
-                                Button("Close Project") { projectController(project)?.closeProject() }
-                                Divider()
-                                Button("New Project") { projectController(project)?.newProject(nil) }
+            List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
+                ForEach(model.projects) { project in
+                    projectRow(project)
+                        .tag(project.id)
+                        .help(projectHelp(project))
+                        .accessibilityLabel(projectAccessibilityLabel(project))
+                        .background(ProjectSidebarContextMenu {
+                            makeProjectContextMenu(project: project, model: model)
+                        })
+                        .accessibilityActions {
+                            Button("Rename Project") { model.beginRename(projectID: project.id) }
+                            Button("Change Emoji") { model.beginProjectEmojiEdit(projectID: project.id) }
+                            Button("Reset Project Appearance") { model.resetProjectAppearance(for: project.id) }
+                            ForEach(TerminalTabColor.allCases, id: \.rawValue) { color in
+                                Button("Project Color: \(color.localizedName)") {
+                                    model.setProjectColor(color, for: project.id)
+                                }
                             }
-                    }
+                            Button("Close Project") { projectController(project)?.closeProject() }
+                        }
+                        .popover(
+                            isPresented: Binding(
+                                get: {
+                                    model.editingProjectEmojiID == project.id
+                                        && controller.window.map(ObjectIdentifier.init) == model.selection
+                                },
+                                set: { presented in
+                                    if !presented { model.cancelProjectEmojiEdit() }
+                                }
+                            ),
+                            arrowEdge: .leading
+                        ) {
+                            ProjectEmojiEditor(model: model, projectID: project.id)
+                        }
                 }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .padding(.top, 8)
-                .contextMenu {
-                    Button("New Project") { controller.newProject(nil) }
-                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .padding(.top, 8)
+            .contextMenu {
+                Button("New Project") { controller.newProject(nil) }
             }
         }
         // Extend the sidebar's one material through the traffic-light and
@@ -635,34 +768,48 @@ struct ProjectSidebarListView: View {
 
         private func projectRow(_ project: TerminalProject) -> some View {
             HStack(spacing: 8) {
-                Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
+                ProjectSidebarIconView(project: project)
                 // Only the visible window owns the editor and its focus.
                 // Hidden tabs share this model but must not create competing
                 // focused fields or commit the draft when they lose focus.
-                if model.editingProjectID == project.id,
-                   controller.window.map(ObjectIdentifier.init) == model.selection {
-                    ProjectRenameField(model: model, projectID: project.id)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(projectDisplayName(project))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let directory = model.directory(for: project) {
-                            Text(directory)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                Group {
+                    if model.editingProjectID == project.id,
+                       controller.window.map(ObjectIdentifier.init) == model.selection {
+                        ProjectRenameField(model: model, projectID: project.id)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(projectDisplayName(project))
                                 .lineLimit(1)
-                                .truncationMode(.middle)
+                                .truncationMode(.tail)
+                            if let directory = model.directory(for: project) {
+                                Text(directory)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                         }
                     }
                 }
+                // Reserve the indicator gutter in every state so adding a
+                // project color never changes text width or truncation.
+                .padding(.trailing, 14)
             }
             .padding(.vertical, 5)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
             .onTapGesture {
                 model.clickProject(project.id)
+            }
+            .overlay(alignment: .trailing) {
+                if let displayColor = project.color.displayColor {
+                    Circle()
+                        .fill(Color(nsColor: displayColor))
+                        .frame(width: 6, height: 6)
+                        .padding(.trailing, 4)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
         }
 
@@ -675,11 +822,115 @@ struct ProjectSidebarListView: View {
         }
 
         private func projectAccessibilityLabel(_ project: TerminalProject) -> String {
-            let name = projectDisplayName(project)
-            if let directory = model.directory(for: project) {
-                return "\(name), \(directory)"
+            var parts = [projectDisplayName(project)]
+            if let emoji = project.emoji {
+                parts.append("Icon \(emoji)")
             }
-            return name
+            if project.color != .none {
+                parts.append("Color \(project.color.localizedName)")
+            }
+            if let directory = model.directory(for: project) {
+                parts.append(directory)
+            }
+            return parts.joined(separator: ", ")
+        }
+
+        private struct ProjectSidebarIconView: View {
+            let project: TerminalProject
+
+            var body: some View {
+                Group {
+                    if let emoji = project.emoji {
+                        Text(emoji)
+                            .font(.system(size: 16))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    } else {
+                        Image(systemName: "folder")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 20, height: 20, alignment: .center)
+                .accessibilityHidden(true)
+            }
+        }
+
+        private struct ProjectEmojiEditor: View {
+            @ObservedObject var model: TabSidebarModel
+            let projectID: UUID
+            @FocusState private var focused: Bool
+
+            private var trimmedDraft: String {
+                model.editingProjectEmojiDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            private var isValidDraft: Bool {
+                trimmedDraft.isEmpty || TerminalProject.normalizedEmoji(trimmedDraft) != nil
+            }
+
+            var body: some View {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Project Icon")
+                        .font(.headline)
+
+                    HStack(spacing: 8) {
+                        Text("Emoji")
+                        TextField("Emoji", text: $model.editingProjectEmojiDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(1)
+                            .frame(width: 40)
+                            .focused($focused)
+                            .accessibilityLabel("Project emoji")
+                            .onSubmit { model.commitProjectEmojiEdit() }
+                            .onExitCommand { model.cancelProjectEmojiEdit() }
+
+                        Button("Choose Emoji…") {
+                            focused = true
+                            DispatchQueue.main.async {
+                                guard model.editingProjectEmojiID == projectID else { return }
+                                NSApp.orderFrontCharacterPalette(nil)
+                            }
+                        }
+                        .help("Open the macOS Character Viewer")
+                    }
+
+                    if !isValidDraft {
+                        Text("Choose one emoji, or leave it empty for the folder icon.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button("Use Default") {
+                            model.editingProjectEmojiDraft = ""
+                        }
+                        .help("Use the default folder icon")
+
+                        Spacer(minLength: 8)
+
+                        Button("Cancel") { model.cancelProjectEmojiEdit() }
+                            .keyboardShortcut(.cancelAction)
+                        Button("Done") { model.commitProjectEmojiEdit() }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(!isValidDraft)
+                    }
+                }
+                .padding(16)
+                .frame(width: 280)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        guard model.editingProjectEmojiID == projectID else { return }
+                        focused = true
+                        DispatchQueue.main.async {
+                            guard model.editingProjectEmojiID == projectID else { return }
+                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
+                        }
+                    }
+                }
+            }
         }
 
         private struct ProjectRenameField: View {

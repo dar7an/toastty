@@ -14,14 +14,33 @@ enum TerminalSplitOperation {
     }
 
     struct Drop {
-        /// The surface being dragged.
-        let payload: Ghostty.SurfaceView
+        /// The terminal layout item being dragged. A tab payload represents
+        /// its complete split tree; a surface payload represents one leaf.
+        let payload: TerminalLayoutDragPayload
 
         /// The surface it was dragged onto
         let destination: Ghostty.SurfaceView
 
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
+
+        init(
+            payload: TerminalLayoutDragPayload,
+            destination: Ghostty.SurfaceView,
+            zone: TerminalSplitDropZone
+        ) {
+            self.payload = payload
+            self.destination = destination
+            self.zone = zone
+        }
+
+        init(
+            payload: Ghostty.SurfaceView,
+            destination: Ghostty.SurfaceView,
+            zone: TerminalSplitDropZone
+        ) {
+            self.init(payload: .surface(payload.id), destination: destination, zone: zone)
+        }
     }
 }
 
@@ -93,6 +112,7 @@ private struct TerminalSplitLeaf: View {
 
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
+    @StateObject private var dragSession = TerminalLayoutDragSession()
 
     var body: some View {
         GeometryReader { geometry in
@@ -105,8 +125,9 @@ private struct TerminalSplitLeaf: View {
                 // so it is a proper invalid drop zone.
                 if !isSelfDragging {
                     Color.clear
-                        .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
+                        .onDrop(of: [.ghosttySurfaceId, .toasttyTerminalLayoutID], delegate: SplitDropDelegate(
                             dropState: $dropState,
+                            session: dragSession,
                             viewSize: geometry.size,
                             destinationSurface: surfaceView,
                             action: action
@@ -128,7 +149,10 @@ private struct TerminalSplitLeaf: View {
     }
 
     private var previewZone: TerminalSplitDropZone? {
-        guard !isSelfDragging, case .dropping(let zone) = dropState else { return nil }
+        guard !isSelfDragging, case .dropping(let zone) = dropState,
+              let payload = dragSession.payload,
+              TerminalLayoutCoordinator.shared.proposal(for: payload, on: surfaceView, zone: zone)?.isValid == true
+        else { return nil }
         return zone
     }
 
@@ -139,16 +163,18 @@ private struct TerminalSplitLeaf: View {
 
     private struct SplitDropDelegate: DropDelegate {
         @Binding var dropState: DropState
+        let session: TerminalLayoutDragSession
         let viewSize: CGSize
         let destinationSurface: Ghostty.SurfaceView
         let action: (TerminalSplitOperation) -> Void
 
         func validateDrop(info: DropInfo) -> Bool {
-            info.hasItemsConforming(to: [.ghosttySurfaceId])
+            info.hasItemsConforming(to: [.ghosttySurfaceId, .toasttyTerminalLayoutID])
         }
 
         func dropEntered(info: DropInfo) {
             dropState = .dropping(.calculate(at: info.location, in: viewSize))
+            session.begin(info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId]))
         }
 
         func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -156,12 +182,17 @@ private struct TerminalSplitLeaf: View {
             // and we don't want to reset our drop zone to show it so we have
             // to guard on the state here.
             guard case .dropping(let previous) = dropState else { return DropProposal(operation: .forbidden) }
-            dropState = .dropping(.calculate(at: info.location, in: viewSize, preferring: previous))
-            return DropProposal(operation: .move)
+            let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize, preferring: previous)
+            dropState = .dropping(zone)
+            let valid = session.payload.map {
+                TerminalLayoutCoordinator.shared.proposal(for: $0, on: destinationSurface, zone: zone)?.isValid == true
+            } ?? false
+            return DropProposal(operation: valid ? .move : .forbidden)
         }
 
         func dropExited(info: DropInfo) {
             dropState = .idle
+            session.end()
         }
 
         func performDrop(info: DropInfo) -> Bool {
@@ -169,27 +200,23 @@ private struct TerminalSplitLeaf: View {
             let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize, preferring: previous)
             dropState = .idle
 
-            // Load the dropped surface asynchronously using Transferable
-            let providers = info.itemProviders(for: [.ghosttySurfaceId])
-            guard let provider = providers.first else { return false }
-
-            // Capture action before the async closure
-            _ = provider.loadTransferable(type: Ghostty.SurfaceView.self) { [weak destinationSurface] result in
-                switch result {
-                case .success(let sourceSurface):
-                    DispatchQueue.main.async {
-                        // Don't allow dropping on self
-                        guard let destinationSurface else { return }
-                        guard sourceSurface !== destinationSurface else { return }
-                        action(.drop(.init(payload: sourceSurface, destination: destinationSurface, zone: zone)))
-                    }
-
-                case .failure:
-                    break
-                }
+            if let payload = session.payload {
+                guard TerminalLayoutCoordinator.shared.proposal(
+                    for: payload, on: destinationSurface, zone: zone)?.isValid == true else { return false }
+                session.end()
+                action(.drop(.init(payload: payload, destination: destinationSurface, zone: zone)))
+                return true
             }
 
-            return true
+            // A fast drop can land before the session's asynchronous payload
+            // publish; load the providers directly and commit on completion.
+            return session.finishDrop(
+                info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+            ) { payload in
+                guard TerminalLayoutCoordinator.shared.proposal(
+                    for: payload, on: self.destinationSurface, zone: zone)?.isValid == true else { return }
+                self.action(.drop(.init(payload: payload, destination: self.destinationSurface, zone: zone)))
+            }
         }
     }
 }

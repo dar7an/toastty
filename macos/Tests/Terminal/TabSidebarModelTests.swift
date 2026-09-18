@@ -389,10 +389,118 @@ struct TabSidebarModelTests {
         let json = #"{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","name":"Old"}"#
         let decoded = try JSONDecoder().decode(TerminalProject.self, from: Data(json.utf8))
         #expect(decoded.directory == nil)
+        #expect(decoded.emoji == nil)
+        #expect(decoded.color == .none)
         // Workstream A: a legacy `name` decodes as the preserved override.
         #expect(decoded.nameOverride == "Old")
         #expect(decoded.displayName == "Old")
         #expect(projectDisplayName(decoded) == "Old")
+    }
+
+    @Test func projectEmojiValidationAndAppearanceRoundTrip() throws {
+        let project = TerminalProject(
+            directory: "/tmp/appearance",
+            nameOverride: "Appearance",
+            selectedTabID: UUID(),
+            emoji: "👨‍💻",
+            color: .purple)
+
+        #expect(project.emoji == "👨‍💻")
+        #expect(project.color == .purple)
+        #expect(TerminalProject.normalizedEmoji("😀") == "😀")
+        #expect(TerminalProject.normalizedEmoji("👍🏽") == "👍🏽")
+        #expect(TerminalProject.normalizedEmoji("🏳️‍🌈") == "🏳️‍🌈")
+        #expect(TerminalProject.normalizedEmoji("1️⃣") == "1️⃣")
+        #expect(TerminalProject.normalizedEmoji("ordinary") == nil)
+        #expect(TerminalProject.normalizedEmoji("😀😀") == nil)
+        #expect(TerminalProject.normalizedEmoji("A") == nil)
+        // `isEmoji` is true for ASCII digits and symbols that still render
+        // as text, so validation requires default emoji presentation or the
+        // U+FE0F emoji selector.
+        #expect(TerminalProject.normalizedEmoji("0") == nil)
+        #expect(TerminalProject.normalizedEmoji("#") == nil)
+        #expect(TerminalProject.normalizedEmoji("A\u{FE0F}") == nil)
+
+        let encoded = try JSONEncoder().encode(project)
+        let decoded = try JSONDecoder().decode(TerminalProject.self, from: encoded)
+        #expect(decoded == project)
+
+        let invalidJSON = #"{"name":"Invalid","emoji":"ordinary","color":0}"#
+        let invalid = try JSONDecoder().decode(
+            TerminalProject.self, from: Data(invalidJSON.utf8))
+        #expect(invalid.emoji == nil)
+        #expect(invalid.color == .none)
+
+        // A color written by a newer build decodes as none instead of
+        // failing the whole project's restoration.
+        let unknownColorJSON = #"{"name":"Newer","color":99}"#
+        let unknownColor = try JSONDecoder().decode(
+            TerminalProject.self, from: Data(unknownColorJSON.utf8))
+        #expect(unknownColor.color == .none)
+        #expect(unknownColor.nameOverride == "Newer")
+    }
+
+    @Test func projectAppearanceUpdatesMatchingTabsOnly() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha")
+        let beta = TerminalProject(name: "Beta", directory: "/tmp/beta")
+        let controllers = [alpha, alpha, beta].map { project in
+            let controller = TerminalController(app, withSurfaceTree: .init())
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            controller.project = project
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach { $0.window = nil }
+            windows.forEach { $0.close() }
+        }
+        for window in windows.dropFirst() { windows[0].addTabbedWindow(window, ordered: .above) }
+        let group = try #require(windows[0].tabGroup)
+        let model = group.tabSidebarModel
+        await drainMainQueue()
+
+        let originalID = controllers[0].project.id
+        let originalDirectory = controllers[0].project.directory
+        let originalName = controllers[0].project.nameOverride
+        let menu = makeProjectContextMenu(project: alpha, model: model)
+        let palette = try #require(menu.items.last?.view as? TabColorPaletteRowView)
+        let buttons = palette.arrangedSubviews.compactMap { $0 as? NSButton }
+        #expect(buttons.count == TerminalTabColor.allCases.count)
+        #expect(palette.frame.width <= 260)
+        #expect(!menu.items.contains { $0.title == "Blue" })
+        buttons[TerminalTabColor.blue.rawValue].performClick(nil)
+        model.beginProjectEmojiEdit(projectID: alpha.id)
+        model.editingProjectEmojiDraft = "🧪"
+        model.commitProjectEmojiEdit()
+        await drainMainQueue()
+
+        for controller in controllers.prefix(2) {
+            #expect(controller.project.id == originalID)
+            #expect(controller.project.directory == originalDirectory)
+            #expect(controller.project.nameOverride == originalName)
+            #expect(controller.project.emoji == "🧪")
+            #expect(controller.project.color == .blue)
+        }
+        #expect(controllers[2].project.emoji == nil)
+        #expect(controllers[2].project.color == .none)
+        #expect(model.projects.first(where: { $0.id == alpha.id })?.emoji == "🧪")
+        #expect(model.projects.first(where: { $0.id == alpha.id })?.color == .blue)
+
+        model.resetProjectAppearance(for: alpha.id)
+        await drainMainQueue()
+        #expect(controllers[0].project.emoji == nil)
+        #expect(controllers[0].project.color == .none)
+        #expect(controllers[1].project.emoji == nil)
+        #expect(controllers[1].project.color == .none)
+        #expect(controllers[2].project.emoji == nil)
+        #expect(controllers[2].project.color == .none)
     }
 
     @Test func directoryDerivedDisplayNames() {
