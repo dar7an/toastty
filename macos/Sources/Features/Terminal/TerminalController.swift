@@ -93,6 +93,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// Layout transfers temporarily move all surfaces out of a tab. The
+    /// normal empty-tree hook closes a tab, so transfers use this flag while
+    /// they update the source tree and close its window as one transaction.
+    var isLayoutTransferInProgress = false
+
     /// One-time project directory seeding from the shell-reported working
     /// directory (see seedProjectDirectoryIfNeeded).
     private var projectDirectoryCancellable: AnyCancellable?
@@ -263,7 +268,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // If our surface tree is now nil then we close our window.
-        if to.isEmpty {
+        if to.isEmpty, !isLayoutTransferInProgress {
             self.window?.close()
         }
     }
@@ -286,6 +291,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             moveFocusTo: newView,
             moveFocusFrom: oldView,
             undoAction: undoAction)
+    }
+
+    /// Assign a tree without invoking the normal empty-tree tab-close path or
+    /// registering a separate undo operation. The layout coordinator owns the
+    /// surrounding transfer transaction and its single undo action.
+    func replaceSurfaceTreeForLayoutTransfer(_ newTree: SplitTree<Ghostty.SurfaceView>) {
+        isLayoutTransferInProgress = true
+        surfaceTree = newTree
+        isLayoutTransferInProgress = false
+    }
+
+    /// Close a tab after its surfaces have already been transferred. Calling
+    /// `close()` directly avoids the normal close-tab undo registration.
+    func closeForLayoutTransfer() {
+        isLayoutTransferInProgress = true
+        window?.close()
+        isLayoutTransferInProgress = false
     }
 
     // MARK: Terminal Creation
@@ -507,6 +529,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
+        registerUndo: Bool = true,
         inProject project: TerminalProject? = nil
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
@@ -532,7 +556,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Create a new window and add it to the parent. New tabs inherit the
         // parent group's sidebar state before window loading.
         let controller = TerminalController(
-            ghostty, withBaseConfig: baseConfig,
+            ghostty, withBaseConfig: baseConfig, withSurfaceTree: tree,
             project: project ?? parentController.project,
             usesProjectSidebar: parentController.usesProjectSidebar,
             sidebarState: parent.tabGroup?.tabSidebarModel.sidebarState
@@ -575,6 +599,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 tabCreated = parent.addTabbedWindowSafely(window, ordered: .above)
             }
             if tabCreated {
+                // Bind the complete project list before AppKit presents this
+                // tab; its temporary one-window model must never flash onscreen.
+                if controller.usesProjectSidebar, let model = parent.tabGroup?.tabSidebarModel {
+                    model.refresh()
+                    (window.contentView as? TerminalViewContainer)?
+                        .projectSplitViewController?.bind(to: model, animated: false)
+                }
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is
                 // set while `-[NSWindowController showWindow:]` is called, but we're
@@ -619,7 +650,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Setup our undo
         let createdProject = controller.project
-        if let undoManager = parentController.undoManager {
+        if registerUndo, let undoManager = parentController.undoManager {
             undoManager.setActionName("New Tab")
             undoManager.registerUndo(
                 withTarget: controller,

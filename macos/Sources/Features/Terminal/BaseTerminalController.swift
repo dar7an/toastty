@@ -550,6 +550,31 @@ class BaseTerminalController: NSWindowController,
         )
     }
 
+    /// Remove a node as part of a larger layout transfer. Unlike
+    /// `removeSurfaceNode`, this does not create its own undo operation; the
+    /// caller is responsible for the complete transaction.
+    func removeSurfaceNodeForLayoutTransfer(_ node: SplitTree<Ghostty.SurfaceView>.Node) {
+        guard surfaceTree.contains(node) else { return }
+
+        let nextFocus: Ghostty.SurfaceView? = if node.contains(where: { $0 == focusedSurface }) {
+            findNextFocusTargetAfterClosing(node: node)
+        } else {
+            nil
+        }
+
+        if let controller = self as? TerminalController {
+            controller.replaceSurfaceTreeForLayoutTransfer(surfaceTree.removing(node))
+        } else {
+            surfaceTree = surfaceTree.removing(node)
+        }
+
+        if let nextFocus {
+            focusedSurface = nextFocus
+        } else if node.contains(where: { $0 == focusedSurface }) {
+            focusedSurface = surfaceTree.first
+        }
+    }
+
     func replaceSurfaceTree(
         _ newTree: SplitTree<Ghostty.SurfaceView>,
         moveFocusTo newView: Ghostty.SurfaceView? = nil,
@@ -1024,7 +1049,7 @@ class BaseTerminalController: NSWindowController,
         case .resize(let resize):
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
-            splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+            splitDidDrop(payload: drop.payload, destination: drop.destination, zone: drop.zone)
         }
     }
 
@@ -1038,82 +1063,14 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func splitDidDrop(
-        source: Ghostty.SurfaceView,
+        payload: TerminalLayoutDragPayload,
         destination: Ghostty.SurfaceView,
         zone: TerminalSplitDropZone
     ) {
-        // Map drop zone to split direction
-        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
-        case .top: .up
-        case .bottom: .down
-        case .left: .left
-        case .right: .right
-        }
-
-        // Check if source is in our tree
-        if let sourceNode = surfaceTree.root?.node(view: source) {
-            // Source is in our tree - same window move
-            let treeWithoutSource = surfaceTree.removing(sourceNode)
-            let newTree: SplitTree<Ghostty.SurfaceView>
-            do {
-                newTree = try treeWithoutSource.inserting(view: source, at: destination, direction: direction)
-            } catch {
-                Ghostty.logger.warning("failed to insert surface during drop: \(error, privacy: .public)")
-                return
-            }
-
-            replaceSurfaceTree(
-                newTree,
-                moveFocusTo: source,
-                moveFocusFrom: focusedSurface,
-                undoAction: "Move Split")
-            return
-        }
-
-        // Source is not in our tree - search other windows
-        var sourceController: BaseTerminalController?
-        var sourceNode: SplitTree<Ghostty.SurfaceView>.Node?
-        for window in NSApp.windows {
-            guard let controller = window.windowController as? BaseTerminalController else { continue }
-            guard controller !== self else { continue }
-            if let node = controller.surfaceTree.root?.node(view: source) {
-                sourceController = controller
-                sourceNode = node
-                break
-            }
-        }
-
-        guard let sourceController, let sourceNode else {
-            Ghostty.logger.warning("source surface not found in any window during drop")
-            return
-        }
-
-        // Remove from source controller's tree and add it to our tree.
-        // We do this first because if there is an error then we can
-        // abort.
-        let newTree: SplitTree<Ghostty.SurfaceView>
-        do {
-            newTree = try surfaceTree.inserting(view: source, at: destination, direction: direction)
-        } catch {
-            Ghostty.logger.warning("failed to insert surface during cross-window drop: \(error, privacy: .public)")
-            return
-        }
-
-        // Treat our undo below as a full group.
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Move Split")
-        defer {
-            undoManager?.endUndoGrouping()
-        }
-
-        // Remove the node from the source.
-        sourceController.removeSurfaceNode(sourceNode)
-
-        // Add in the surface to our tree
-        replaceSurfaceTree(
-            newTree,
-            moveFocusTo: source,
-            moveFocusFrom: focusedSurface)
+        TerminalLayoutCoordinator.shared.move(
+            payload: payload,
+            into: destination,
+            zone: zone)
     }
 
     func performAction(_ action: String, on surfaceView: Ghostty.SurfaceView) {

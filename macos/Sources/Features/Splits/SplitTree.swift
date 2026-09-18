@@ -66,6 +66,7 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
 
     enum SplitError: Error {
         case viewNotFound
+        case invalidRatio
     }
 
     enum NewDirection {
@@ -128,6 +129,24 @@ extension SplitTree {
             root: try root.inserting(view: view, at: at, direction: direction),
             zoomed: nil)
     }
+
+    /// Insert an existing subtree at an existing node.
+    ///
+    /// The subtree is kept intact. This is the operation used when a tab that
+    /// already contains splits is dropped into another tab. The source and
+    /// destination trees are value types, but their leaf views remain the same
+    /// AppKit objects, so moving a subtree never creates a new terminal.
+    func inserting(
+        node: Node,
+        at destination: Node,
+        direction: NewDirection,
+        ratio: Double = 0.5
+    ) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+        return .init(
+            root: try root.inserting(node: node, at: destination, direction: direction, ratio: ratio),
+            zoomed: nil)
+    }
     /// Find a node containing a view with the specified ID.
     /// - Parameter id: The ID of the view to find
     /// - Returns: The node containing the view if found, nil otherwise
@@ -149,8 +168,14 @@ extension SplitTree {
         // Otherwise, try to remove from the tree
         let newRoot = root.remove(target)
 
-        // Update zoomed if it was the removed node
-        let newZoomed = (zoomed == target) ? nil : zoomed
+        // A zoomed node can be any descendant of the node being removed. In
+        // either case the old zoom path no longer exists in the new tree.
+        let removesZoomed = if let zoomed {
+            target.path(to: zoomed) != nil
+        } else {
+            false
+        }
+        let newZoomed = removesZoomed ? nil : zoomed
 
         return .init(root: newRoot, zoomed: newZoomed)
     }
@@ -510,38 +535,48 @@ extension SplitTree.Node {
     /// - Note: If the existing view (`at`) is not found in the tree, this method does nothing. We should
     /// maybe throw instead but at the moment we just do nothing.
     func inserting(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
-        // Get the path to our insertion point. If it doesn't exist we do
-        // nothing.
-        guard let path = path(to: .leaf(view: at)) else {
+        try inserting(node: .leaf(view: view), at: .leaf(view: at), direction: direction)
+    }
+
+    /// Inserts an existing node into this subtree by creating a split at the
+    /// location of the destination node.
+    func inserting(
+        node newNode: Node,
+        at destination: Node,
+        direction: NewDirection,
+        ratio: Double = 0.5
+    ) throws -> Self {
+        guard let path = path(to: destination) else {
             throw SplitError.viewNotFound
         }
 
-        // Determine split direction and which side the new view goes on
+        guard ratio.isFinite else { throw SplitError.invalidRatio }
+        let ratio = Swift.max(0.1, Swift.min(0.9, ratio))
+
+        // Determine split direction and which side the new node goes on.
         let splitDirection: SplitTree.Direction
-        let newViewOnLeft: Bool
+        let newNodeOnLeft: Bool
         switch direction {
         case .left:
             splitDirection = .horizontal
-            newViewOnLeft = true
+            newNodeOnLeft = true
         case .right:
             splitDirection = .horizontal
-            newViewOnLeft = false
+            newNodeOnLeft = false
         case .up:
             splitDirection = .vertical
-            newViewOnLeft = true
+            newNodeOnLeft = true
         case .down:
             splitDirection = .vertical
-            newViewOnLeft = false
+            newNodeOnLeft = false
         }
 
-        // Create the new split node
-        let newNode: Node = .leaf(view: view)
-        let existingNode: Node = .leaf(view: at)
+        let existingNode = destination
         let newSplit: Node = .split(.init(
             direction: splitDirection,
-            ratio: 0.5,
-            left: newViewOnLeft ? newNode : existingNode,
-            right: newViewOnLeft ? existingNode : newNode
+            ratio: ratio,
+            left: newNodeOnLeft ? newNode : existingNode,
+            right: newNodeOnLeft ? existingNode : newNode
         ))
 
         // Replace the node at the path with the new split

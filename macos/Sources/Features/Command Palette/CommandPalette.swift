@@ -185,10 +185,9 @@ struct CommandPaletteView: View {
 }
 
 /// The text field for building the query for the command palette.
-private struct CommandPaletteQuery: View {
+struct CommandPaletteQuery: View {
     @Binding var query: String
     var onEvent: ((KeyboardEvent) -> Void)?
-    @FocusState private var isTextFieldFocused: Bool
 
     init(query: Binding<String>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
         _query = query
@@ -221,31 +220,70 @@ private struct CommandPaletteQuery: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
-            TextField("Execute a command…", text: $query)
+            CommandPaletteSearchField(query: $query, onEvent: onEvent)
                 .padding()
-                .font(.system(size: 20, weight: .light))
                 .frame(height: 48)
-                .textFieldStyle(.plain)
-                .focused($isTextFieldFocused)
-                .onChange(of: isTextFieldFocused) { focused in
-                    if !focused {
-                        onEvent?(.exit)
-                    }
-                }
-                .onExitCommand { onEvent?(.exit) }
-                .onMoveCommand { onEvent?(.move($0)) }
-                .onSubmit { onEvent?(.submit) }
-                .onAppear {
-                    // Grab focus on the first appearance.
-                    // Debug and Release build using Xcode 26.4,
-                    // has same issue again
-                    // Fixes: https://github.com/ghostty-org/ghostty/issues/8497
-                    // SearchOverlay works magically as expected, I don't know
-                    // why it's different here, but dispatching to next loop fixes it
-                    DispatchQueue.main.async {
-                        isTextFieldFocused = true
-                    }
-                }
+        }
+    }
+}
+
+/// AppKit owns initial focus so typing cannot leak into the terminal while
+/// SwiftUI attaches the palette's overlay to the native split-view hierarchy.
+struct CommandPaletteSearchField: NSViewRepresentable {
+    @Binding var query: String
+    var onEvent: ((CommandPaletteQuery.KeyboardEvent) -> Void)?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> SearchField {
+        let field = SearchField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: 20, weight: .light)
+        field.placeholderString = "Execute a command…"
+        field.setAccessibilityLabel("Execute a command")
+        field.cell?.usesSingleLineMode = true
+        field.delegate = context.coordinator
+        field.stringValue = query
+        return field
+    }
+
+    func updateNSView(_ field: SearchField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != query { field.stringValue = query }
+    }
+
+    final class SearchField: NSTextField {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: CommandPaletteSearchField
+        init(_ parent: CommandPaletteSearchField) { self.parent = parent }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.query = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) { parent.onEvent?(.exit) }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
+            switch command {
+            case #selector(NSResponder.insertNewline(_:)): parent.onEvent?(.submit)
+            case #selector(NSResponder.cancelOperation(_:)): parent.onEvent?(.exit)
+            case #selector(NSResponder.moveUp(_:)): parent.onEvent?(.move(.up))
+            case #selector(NSResponder.moveDown(_:)): parent.onEvent?(.move(.down))
+            default: return false
+            }
+            return true
         }
     }
 }

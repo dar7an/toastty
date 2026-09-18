@@ -277,7 +277,10 @@ class TerminalWindow: NSWindow {
         toolbar.displayMode = .iconOnly
         self.toolbar = toolbar
         toolbarStyle = .unified
-        toolbar.showsBaselineSeparator = false
+        // Keep the tabbar visually separate from the terminal content. AppKit
+        // supplies the adaptive one-pixel baseline and keeps it aligned with
+        // the native toolbar across appearances and accessibility settings.
+        titlebarSeparatorStyle = .line
         projectFullscreenCancellable = NotificationCenter.default
             .publisher(for: NSWindow.didEnterFullScreenNotification, object: self)
             .receive(on: DispatchQueue.main)

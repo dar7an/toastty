@@ -24,6 +24,18 @@ struct ProjectWindowLayoutTests {
         })
         let host = try #require(item.view)
         #expect(host.frame.width > window.contentLayoutRect.width - split.sidebarColumnWidth - 180)
+        #expect(window.titlebarSeparatorStyle == .line)
+
+        let tabbarMaterial = try #require(descendants(of: host)
+            .compactMap { $0 as? NSVisualEffectView }
+            .first { $0.material == .titlebar })
+        let tabbarMaterialFrame = tabbarMaterial.convert(tabbarMaterial.bounds, to: host)
+        // The material fills the flexible tab-strip host, with its corners
+        // clipped to the capsule rail by SwiftUI.
+        #expect(tabbarMaterialFrame.minX <= host.bounds.minX + 1)
+        #expect(tabbarMaterialFrame.maxX >= host.bounds.maxX - 1)
+        #expect(tabbarMaterialFrame.minY <= host.bounds.minY + 1)
+        #expect(tabbarMaterialFrame.maxY >= host.bounds.maxY - 1)
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })
@@ -41,6 +53,8 @@ struct ProjectWindowLayoutTests {
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
         let sidebarView = split.sidebarSplitItem.viewController.view
+        let tables = descendants(of: sidebarView).compactMap { $0 as? NSTableView }
+        #expect(tables.contains { $0.numberOfRows == 1 })
         let material = try #require(descendants(of: sidebarView)
             .compactMap { $0 as? NSVisualEffectView }.first { $0.material == .sidebar })
         let materialFrame = material.convert(material.bounds, to: sidebarView)
@@ -101,6 +115,44 @@ struct ProjectWindowLayoutTests {
         #expect(abs(cell.fittingSize.width - 198) < 0.5)
     }
 
+    @Test func tabMouseClicksReachSelectionWithoutStartingADrag() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let row = TabSidebarModel.Row(window: window, project: TerminalProject(directory: "/tmp"), title: "Terminal")
+        var selected: [ObjectIdentifier] = []
+        let host = ProjectTabCellHostingView(rootView: ProjectTabCell(
+            row: row, isSelected: false, onSelect: { selected.append($0) }, showSeparator: false, width: 280))
+        host.frame = NSRect(x: 0, y: 0, width: 280, height: 26)
+        window.contentView = host
+        let point = host.convert(NSPoint(x: 140, y: 13), to: nil)
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 0.1,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        host.mouseDown(with: down)
+        #expect(selected.isEmpty)
+        host.mouseUp(with: up)
+        #expect(selected == [row.id])
+        // A cancelled drag/release cannot invoke selection a second time.
+        host.mouseUp(with: up)
+        #expect(selected.count == 1)
+    }
+
+    @Test func nativeReorderCrossesMidpointsAndMovesOnlyInterveningTabs() {
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 49, width: 100, count: 4) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 51, width: 100, count: 4) == 2)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -51, width: 100, count: 4) == 0)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 900, width: 100, count: 4) == 3)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: .infinity, width: 100, count: 4) == 1)
+        #expect(ProjectTabReorderGesture.neighborOffset(index: 2, source: 1, destination: 3, width: 100) == -100)
+        #expect(ProjectTabReorderGesture.neighborOffset(index: 0, source: 1, destination: 3, width: 100) == 0)
+        #expect(ProjectTabReorderGesture.neighborOffset(index: 1, source: 3, destination: 0, width: 100) == 100)
+    }
+
     @Test func tabContextMenuUsesCompactAccessiblePalette() throws {
         let window = TerminalWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -118,6 +170,31 @@ struct ProjectWindowLayoutTests {
         #expect(window.tabColor == .green)
         buttons[TerminalTabColor.none.rawValue].performClick(nil)
         #expect(window.tabColor == .none)
+    }
+
+    @Test func tabRailAlwaysReordersAcrossTheCell() {
+        #expect(ProjectTabDropState.calculate(atX: 0, width: 200) == .before)
+        #expect(ProjectTabDropState.calculate(atX: 99, width: 200) == .before)
+        #expect(ProjectTabDropState.calculate(atX: 100, width: 200) == .after)
+        #expect(ProjectTabDropState.calculate(atX: 199, width: 200) == .after)
+        #expect(ProjectTabDropState.calculate(atX: 0, width: 0) == .idle)
+    }
+
+    @Test func commandPaletteTakesFocusFromTerminalContent() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        let host = NSHostingView(rootView: CommandPaletteSearchField(query: .constant("")))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        let field = try #require(descendants(of: host).compactMap {
+            $0 as? CommandPaletteSearchField.SearchField
+        }.first)
+        #expect(field.currentEditor() === window.firstResponder)
+        #expect(window.firstResponder is NSTextView)
     }
 
     /// Exercise native layout without starting a terminal process or relying on
