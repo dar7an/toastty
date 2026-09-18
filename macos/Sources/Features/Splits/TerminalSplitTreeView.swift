@@ -200,12 +200,23 @@ private struct TerminalSplitLeaf: View {
             let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize, preferring: previous)
             dropState = .idle
 
-            guard let payload = session.payload,
-                  TerminalLayoutCoordinator.shared.proposal(
+            if let payload = session.payload {
+                guard TerminalLayoutCoordinator.shared.proposal(
                     for: payload, on: destinationSurface, zone: zone)?.isValid == true else { return false }
-            session.end()
-            action(.drop(.init(payload: payload, destination: destinationSurface, zone: zone)))
-            return true
+                session.end()
+                action(.drop(.init(payload: payload, destination: destinationSurface, zone: zone)))
+                return true
+            }
+
+            // A fast drop can land before the session's asynchronous payload
+            // publish; load the providers directly and commit on completion.
+            return session.finishDrop(
+                info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+            ) { payload in
+                guard TerminalLayoutCoordinator.shared.proposal(
+                    for: payload, on: self.destinationSurface, zone: zone)?.isValid == true else { return }
+                self.action(.drop(.init(payload: payload, destination: self.destinationSurface, zone: zone)))
+            }
         }
     }
 }

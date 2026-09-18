@@ -11,12 +11,15 @@ func makeProjectContextMenu(project: TerminalProject, model: TabSidebarModel) ->
     reset.isEnabled = project.emoji != nil || project.color != .none
     menu.addItem(reset)
     menu.addItem(.separator())
-    menu.addItem(ProjectTabMenuItem("Close Project") {
-        (model.restoreTargetRow(for: project.id)?.window.windowController as? TerminalController)?.closeProject()
-    })
-    menu.addItem(ProjectTabMenuItem("New Project") {
-        (model.restoreTargetRow(for: project.id)?.window.windowController as? TerminalController)?.newProject(nil)
-    })
+    // The restore target is empty until a tab records selection, so fall
+    // back to the project's first row like `projectController` does.
+    let targetController = {
+        (model.restoreTargetRow(for: project.id)
+            ?? model.rows.first(where: { $0.project.id == project.id }))
+            .flatMap { $0.window.windowController as? TerminalController }
+    }
+    menu.addItem(ProjectTabMenuItem("Close Project") { targetController()?.closeProject() })
+    menu.addItem(ProjectTabMenuItem("New Project") { targetController()?.newProject(nil) })
     menu.addItem(.separator())
     if #available(macOS 14.0, *) {
         menu.addItem(.sectionHeader(title: "Project Color"))

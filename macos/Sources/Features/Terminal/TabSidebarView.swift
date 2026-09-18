@@ -108,8 +108,14 @@ struct TerminalProject: Codable, Equatable, Identifiable {
     static func normalizedEmoji(_ value: String?) -> String? {
         guard let value else { return nil }
         let candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `isEmoji` alone accepts ASCII digits and symbols like "#": they
+        // carry the Emoji property but default to text presentation. Require
+        // a scalar that renders as emoji, either by default or via U+FE0F.
         guard candidate.count == 1,
-              candidate.unicodeScalars.contains(where: { $0.properties.isEmoji }) else {
+              candidate.unicodeScalars.contains(where: { $0.properties.isEmoji }),
+              candidate.unicodeScalars.contains(where: {
+                  $0.properties.isEmojiPresentation || $0.value == 0xFE0F
+              }) else {
             return nil
         }
         return candidate.precomposedStringWithCanonicalMapping
@@ -140,7 +146,14 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         }
         selectedTabID = try container.decodeIfPresent(UUID.self, forKey: .selectedTabID)
         emoji = Self.normalizedEmoji(try container.decodeIfPresent(String.self, forKey: .emoji))
-        color = try container.decodeIfPresent(TerminalTabColor.self, forKey: .color) ?? .none
+        // An unknown stored value (e.g. a color added by a newer build) must
+        // not fail the whole project's decode: raw enum decoding throws
+        // before the nil fallback, so decode the raw value lossily.
+        if let rawColor = try container.decodeIfPresent(Int.self, forKey: .color) {
+            color = TerminalTabColor(rawValue: rawColor) ?? .none
+        } else {
+            color = .none
+        }
     }
 
     func encode(to encoder: any Encoder) throws {

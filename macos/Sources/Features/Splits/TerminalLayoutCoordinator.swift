@@ -218,7 +218,9 @@ final class TerminalLayoutCoordinator {
     private func controller(forTabID id: UUID) -> TerminalController? {
         // Closed source controllers can remain alive in AppKit/undo snapshots.
         // After undo, only the restored nonempty controller owns this tab ID.
-        TerminalController.all.first { $0.projectTabID == id && !$0.surfaceTree.isEmpty }
+        TerminalController.all.first {
+            $0.projectTabID == id && !$0.surfaceTree.isEmpty && !$0.isWindowClosed
+        }
     }
 
     private func resolveSource(_ payload: TerminalLayoutDragPayload) -> ResolvedSource? {
@@ -515,9 +517,13 @@ final class TerminalLayoutCoordinator {
 
         guard let undoManager = destination.undoManager else { return }
         let ghostty = destination.ghostty
+        let coordinator = self
         undoManager.setActionName("Move Tab into Split")
-        undoManager.registerUndo(withTarget: self, expiresAfter: destination.undoExpiration) { coordinator in
-            guard let destination = coordinator.controller(forTabID: destinationTabID) else { return }
+        undoManager.registerUndo(withTarget: destination, expiresAfter: destination.undoExpiration) { _ in
+            // The source is recreated from its snapshot, but the destination
+            // restore only makes sense while its window is still open.
+            guard let destination = coordinator.controller(forTabID: destinationTabID),
+                  !destination.isWindowClosed else { return }
 
             coordinator.setTreeWithoutUndo(oldDestinationTree, on: destination)
             let restoredSource = TerminalController(ghostty, with: sourceState)
@@ -525,7 +531,9 @@ final class TerminalLayoutCoordinator {
             coordinator.restoreFocus(oldDestinationFocus, in: destination)
             coordinator.refreshTabModels(for: destination.window)
 
-            undoManager.registerUndo(withTarget: coordinator, expiresAfter: destination.undoExpiration) { coordinator in
+            destination.undoManager?.registerUndo(
+                withTarget: destination, expiresAfter: destination.undoExpiration
+            ) { _ in
                 coordinator.moveTab(
                     sourceTabID,
                     into: destinationTabID,
@@ -554,17 +562,32 @@ final class TerminalLayoutCoordinator {
         let source = sourceState.controller
         let destination = destinationState.controller
         guard let undoManager = destination.undoManager else { return }
+        let sourceTree = sourceState.tree
+        let sourceFocus = sourceState.focus
+        let destinationTree = destinationState.tree
+        let destinationFocus = destinationState.focus
         let coordinator = self
         undoManager.setActionName("Move Split")
-        undoManager.registerUndo(withTarget: coordinator, expiresAfter: destination.undoExpiration) { coordinator in
-            coordinator.setTreeWithoutUndo(sourceState.tree, on: source)
-            coordinator.setTreeWithoutUndo(destinationState.tree, on: destination)
-            coordinator.restoreFocus(sourceState.focus, in: source)
-            coordinator.restoreFocus(destinationState.focus, in: destination)
+        // The undo manager retains the handler while only the proxy target
+        // is held weakly, so target a participating controller and capture
+        // the source weakly: a closed window must drop or skip the action.
+        undoManager.registerUndo(withTarget: destination, expiresAfter: destination.undoExpiration) { [weak source] destination in
+            // Mutating either tree only makes sense while both windows are
+            // open: restoring a closed source is invisible, and restoring
+            // the destination alone drops the moved surface entirely.
+            guard let source, !source.isWindowClosed, !destination.isWindowClosed
+            else { return }
+            coordinator.setTreeWithoutUndo(sourceTree, on: source)
+            coordinator.setTreeWithoutUndo(destinationTree, on: destination)
+            coordinator.restoreFocus(sourceFocus, in: source)
+            coordinator.restoreFocus(destinationFocus, in: destination)
             coordinator.refreshTabModels(for: destination.window)
 
-            undoManager.registerUndo(withTarget: coordinator, expiresAfter: destination.undoExpiration) { coordinator in
-                guard let sourceSurface = source.surfaceTree.first(where: { $0.id == sourceSurfaceID }),
+            destination.undoManager?.registerUndo(
+                withTarget: destination, expiresAfter: destination.undoExpiration
+            ) { [weak source] destination in
+                guard let source, !source.isWindowClosed,
+                      let sourceSurface = source.surfaceTree.first(where: { $0.id == sourceSurfaceID }),
                       let destinationSurface = destination.surfaceTree.first(where: { $0.id == destinationSurfaceID }) else { return }
                 coordinator.commitSurfaceMove(
                     source: source,
@@ -588,9 +611,13 @@ final class TerminalLayoutCoordinator {
         guard let undoManager = destination.undoManager else { return }
         let extractedID = extracted.projectTabID
         let surfaceID = extracted.surfaceTree.first?.id
+        let coordinator = self
         undoManager.setActionName("Extract Split to Tab")
-        undoManager.registerUndo(withTarget: self, expiresAfter: destination.undoExpiration) { coordinator in
-            guard let surfaceID,
+        undoManager.registerUndo(withTarget: destination, expiresAfter: destination.undoExpiration) { [weak source] destination in
+            // Putting the surface back requires the source window: if it
+            // closed, closing the extracted tab would lose the surface.
+            guard let source, !source.isWindowClosed, !destination.isWindowClosed,
+                  let surfaceID,
                   let extracted = coordinator.controller(forTabID: extractedID) else { return }
             let extractedSurface = extracted.surfaceTree.first(where: { $0.id == surfaceID })
             guard let extractedSurface else { return }
@@ -601,7 +628,9 @@ final class TerminalLayoutCoordinator {
             extracted.closeForLayoutTransfer()
             coordinator.refreshTabModels(for: destination.window)
 
-            undoManager.registerUndo(withTarget: coordinator, expiresAfter: destination.undoExpiration) { coordinator in
+            destination.undoManager?.registerUndo(
+                withTarget: destination, expiresAfter: destination.undoExpiration
+            ) { destination in
                 coordinator.extractSurface(
                     surfaceID,
                     beside: destination.projectTabID,

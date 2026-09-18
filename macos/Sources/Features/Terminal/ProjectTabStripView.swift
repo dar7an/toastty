@@ -283,11 +283,21 @@ private struct ProjectTabCellDropDelegate: DropDelegate {
         dropState = .idle
         guard position != .idle else { return false }
 
-        guard let payload = session.payload,
-              TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: row.window) else { return false }
-        session.end()
-        commit(payload, at: position)
-        return true
+        if let payload = session.payload {
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: row.window) else { return false }
+            session.end()
+            commit(payload, at: position)
+            return true
+        }
+
+        // A fast drop can land before the session's asynchronous payload
+        // publish; load the providers directly and commit on completion.
+        return session.finishDrop(
+            info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+        ) { payload in
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: self.row.window) else { return }
+            self.commit(payload, at: position)
+        }
     }
 
     private func commit(_ payload: TerminalLayoutDragPayload, at position: ProjectTabDropState) {
@@ -361,10 +371,27 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard let targetRow = model.visibleTabs.last,
-              let target = targetRow.window.windowController as? TerminalController,
-              let payload = session.payload,
-              TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: targetRow.window) else { return false }
-        session.end()
+              targetRow.window.windowController is TerminalController else { return false }
+
+        if let payload = session.payload {
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: targetRow.window) else { return false }
+            session.end()
+            commit(payload, beside: targetRow)
+            return true
+        }
+
+        // A fast drop can land before the session's asynchronous payload
+        // publish; load the providers directly and commit on completion.
+        return session.finishDrop(
+            info.itemProviders(for: [.toasttyTerminalLayoutID, .ghosttySurfaceId])
+        ) { payload in
+            guard TerminalLayoutCoordinator.shared.canDropInTabBar(payload, beside: targetRow.window) else { return }
+            self.commit(payload, beside: targetRow)
+        }
+    }
+
+    private func commit(_ payload: TerminalLayoutDragPayload, beside targetRow: TabSidebarModel.Row) {
+        guard let target = targetRow.window.windowController as? TerminalController else { return }
         switch payload {
         case .tab(let sourceID):
             TerminalLayoutCoordinator.shared.reorderTab(
@@ -373,7 +400,6 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
             TerminalLayoutCoordinator.shared.extractSurface(
                 surfaceID, beside: target.projectTabID, insertionIndex: target.projectTabWindows.count)
         }
-        return true
     }
 }
 

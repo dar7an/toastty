@@ -26,16 +26,23 @@ struct ProjectWindowLayoutTests {
         #expect(host.frame.width > window.contentLayoutRect.width - split.sidebarColumnWidth - 180)
         #expect(window.titlebarSeparatorStyle == .line)
 
-        let tabbarMaterial = try #require(descendants(of: host)
-            .compactMap { $0 as? NSVisualEffectView }
-            .first { $0.material == .titlebar })
-        let tabbarMaterialFrame = tabbarMaterial.convert(tabbarMaterial.bounds, to: host)
-        // The material fills the flexible tab-strip host, with its corners
-        // clipped to the capsule rail by SwiftUI.
-        #expect(tabbarMaterialFrame.minX <= host.bounds.minX + 1)
-        #expect(tabbarMaterialFrame.maxX >= host.bounds.maxX - 1)
-        #expect(tabbarMaterialFrame.minY <= host.bounds.minY + 1)
-        #expect(tabbarMaterialFrame.maxY >= host.bounds.maxY - 1)
+        // The shade fills the host with a titlebar material, clipped to the
+        // capsule rail by SwiftUI. Reduced transparency or increased contrast
+        // (reported by virtualized runners) swaps the material for an opaque
+        // fill, so there the rendered tab cells prove the strip is live.
+        if let tabbarMaterial = descendants(of: host)
+            .compactMap({ $0 as? NSVisualEffectView })
+            .first(where: { $0.material == .titlebar }) {
+            let tabbarMaterialFrame = tabbarMaterial.convert(tabbarMaterial.bounds, to: host)
+            #expect(tabbarMaterialFrame.minX <= host.bounds.minX + 1)
+            #expect(tabbarMaterialFrame.maxX >= host.bounds.maxX - 1)
+            #expect(tabbarMaterialFrame.minY <= host.bounds.minY + 1)
+            #expect(tabbarMaterialFrame.maxY >= host.bounds.maxY - 1)
+        } else {
+            #expect(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+                || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
+            #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
+        }
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })

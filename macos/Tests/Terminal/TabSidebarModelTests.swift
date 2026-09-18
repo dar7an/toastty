@@ -410,9 +410,16 @@ struct TabSidebarModelTests {
         #expect(TerminalProject.normalizedEmoji("😀") == "😀")
         #expect(TerminalProject.normalizedEmoji("👍🏽") == "👍🏽")
         #expect(TerminalProject.normalizedEmoji("🏳️‍🌈") == "🏳️‍🌈")
+        #expect(TerminalProject.normalizedEmoji("1️⃣") == "1️⃣")
         #expect(TerminalProject.normalizedEmoji("ordinary") == nil)
         #expect(TerminalProject.normalizedEmoji("😀😀") == nil)
         #expect(TerminalProject.normalizedEmoji("A") == nil)
+        // `isEmoji` is true for ASCII digits and symbols that still render
+        // as text, so validation requires default emoji presentation or the
+        // U+FE0F emoji selector.
+        #expect(TerminalProject.normalizedEmoji("0") == nil)
+        #expect(TerminalProject.normalizedEmoji("#") == nil)
+        #expect(TerminalProject.normalizedEmoji("A\u{FE0F}") == nil)
 
         let encoded = try JSONEncoder().encode(project)
         let decoded = try JSONDecoder().decode(TerminalProject.self, from: encoded)
@@ -423,6 +430,14 @@ struct TabSidebarModelTests {
             TerminalProject.self, from: Data(invalidJSON.utf8))
         #expect(invalid.emoji == nil)
         #expect(invalid.color == .none)
+
+        // A color written by a newer build decodes as none instead of
+        // failing the whole project's restoration.
+        let unknownColorJSON = #"{"name":"Newer","color":99}"#
+        let unknownColor = try JSONDecoder().decode(
+            TerminalProject.self, from: Data(unknownColorJSON.utf8))
+        #expect(unknownColor.color == .none)
+        #expect(unknownColor.nameOverride == "Newer")
     }
 
     @Test func projectAppearanceUpdatesMatchingTabsOnly() async throws {

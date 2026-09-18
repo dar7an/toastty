@@ -1259,8 +1259,13 @@ class BaseTerminalController: NSWindowController,
         return false
     }
 
+    /// Set when the window closes. Layout-transfer undo actions outlive the
+    /// window inside a sibling's undo manager and must not mutate a dead tree.
+    private(set) var isWindowClosed = false
+
     func windowWillClose(_ notification: Notification) {
         guard let window else { return }
+        isWindowClosed = true
 
         for surfaceView in surfaceTree {
             cancelPendingClipboardConfirmation(for: surfaceView)

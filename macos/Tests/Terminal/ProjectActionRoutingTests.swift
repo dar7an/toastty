@@ -253,6 +253,47 @@ struct ProjectActionRoutingTests {
         #expect(target.surfaceTree.count == 2)
     }
 
+    @Test func moveUndoSkipsWhenSourceWindowClosed() async throws {
+        let app = try Self.testApp()
+        let core = try #require(app.app)
+        let first = Ghostty.SurfaceView(core)
+        let second = Ghostty.SurfaceView(core)
+        let extra = Ghostty.SurfaceView(core)
+        // A two-pane source keeps its window open when one pane moves away.
+        let sourceTree = try SplitTree(view: first).inserting(view: extra, at: first, direction: .right)
+        let source = LayoutTestController(app, withSurfaceTree: sourceTree, usesProjectSidebar: true)
+        let target = LayoutTestController(app, withSurfaceTree: .init(view: second), usesProjectSidebar: true)
+        let sourceWindow = makeWindow(source, views: [first, extra])
+        let targetWindow = makeWindow(target, views: [second])
+        sourceWindow.tabbingMode = .preferred
+        targetWindow.tabbingMode = .preferred
+        target.project = source.project
+        sourceWindow.addTabbedWindow(targetWindow, ordered: .above)
+        defer {
+            target.testUndoManager.removeAllActions()
+            tearDown(source, window: sourceWindow)
+            tearDown(target, window: targetWindow)
+        }
+        let undo = target.testUndoManager
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        TerminalLayoutCoordinator.shared.move(payload: .surface(extra.id), into: second, zone: .right)
+        undo.endUndoGrouping()
+        #expect(target.surfaceTree.count == 2)
+        #expect(target.surfaceTree.contains(extra))
+        #expect(source.surfaceTree.count == 1)
+
+        // The undo manager retains its handler, so a closed source window
+        // does not remove the action. Running it must skip both restores:
+        // the destination restore alone would drop the moved surface while
+        // the source restore lands in a dead window.
+        sourceWindow.close()
+        undo.undo()
+        await drainMainQueue()
+        #expect(target.surfaceTree.count == 2)
+        #expect(target.surfaceTree.contains(extra))
+    }
+
     private func drainMainQueue() async {
         for _ in 0..<5 {
             await withCheckedContinuation { continuation in
@@ -281,6 +322,9 @@ struct ProjectActionRoutingTests {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         controller.window = window
+        // Production nibs wire the controller as the window delegate; mirror
+        // that here so close lifecycle hooks (windowWillClose) fire in tests.
+        window.delegate = controller
         for view in views { window.contentView?.addSubview(view) }
         return window
     }

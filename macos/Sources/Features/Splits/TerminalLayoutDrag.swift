@@ -239,6 +239,24 @@ final class TerminalLayoutDragSession: ObservableObject {
         }
     }
 
+    /// Commits a drop that landed before `begin`'s asynchronous publish.
+    /// `.onDrop` can call `performDrop` before the provider load above
+    /// finishes, so the delegate loads the providers directly, commits on
+    /// the main queue, and ends the session. Returns false when no provider
+    /// carries a layout payload.
+    @discardableResult
+    func finishDrop(
+        _ providers: [NSItemProvider],
+        commit: @escaping (TerminalLayoutDragPayload) -> Void
+    ) -> Bool {
+        TerminalLayoutDragPayload.load(from: providers) { [weak self] payload in
+            DispatchQueue.main.async {
+                commit(payload)
+                self?.end()
+            }
+        }
+    }
+
     func end() {
         generation = UUID()
         payload = nil
