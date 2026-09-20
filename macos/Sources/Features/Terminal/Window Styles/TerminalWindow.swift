@@ -263,9 +263,8 @@ class TerminalWindow: NSWindow {
 
     /// Called once the controller is connected, after the nib's default chrome
     /// and after the split view is attached. The split controller supplies
-    /// the retained per-window toolbar delegate, so the `.toggleSidebar` /
-    /// tracking-separator / tab-strip toolbar never propagates to unrelated
-    /// windows.
+    /// the retained per-window toolbar delegate, so the sidebar toggle,
+    /// tracking separator, and tab strip never propagate to unrelated windows.
     func configureProjectChrome(splitController: ProjectSplitViewController? = nil) {
         styleMask.insert(.fullSizeContentView)
         titleVisibility = .hidden

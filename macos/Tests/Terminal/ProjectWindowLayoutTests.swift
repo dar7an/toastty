@@ -23,7 +23,13 @@ struct ProjectWindowLayoutTests {
             $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
         })
         let host = try #require(item.view)
-        #expect(host.frame.width > window.contentLayoutRect.width - split.sidebarColumnWidth - 180)
+        let contentView = try #require(window.contentView)
+        let sidebarColumn = try #require(split.splitView.arrangedSubviews.first)
+        let hostFrame = host.convert(host.bounds, to: contentView)
+        let sidebarFrame = sidebarColumn.convert(sidebarColumn.bounds, to: contentView)
+        #expect(hostFrame.minX >= sidebarFrame.maxX)
+        #expect(hostFrame.maxX <= contentView.bounds.maxX)
+        #expect(hostFrame.width > 0)
         #expect(window.titlebarSeparatorStyle == .line)
 
         // The shade fills the host with a titlebar material, clipped to the
@@ -46,16 +52,16 @@ struct ProjectWindowLayoutTests {
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })
-        let sidebar = try #require(window.toolbar?.items.first { $0.itemIdentifier == .toggleSidebar })
-        // Both actions are AppKit toolbar controls, sized by the same native
-        // metrics rather than a SwiftUI button with a smaller fixed frame.
+        let sidebar = try #require(window.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.sidebarToggleItemIdentifier
+        })
+        let sidebarButton = try #require(sidebar.view as? NSButton)
         #expect(newTab.isBordered)
         #expect(newTab.action == #selector(TerminalController.newTab(_:)))
         #expect(newTab.target === controller)
-        // New Tab leaves button creation to AppKit; Toggle Sidebar is itself
-        // an AppKit-provided NSButton. Compare their sizes in the live app.
         #expect(newTab.view == nil)
-        #expect(sidebar.view is NSButton)
+        #expect(abs(sidebarButton.frame.width - sidebarButton.frame.height) < 0.5)
+        #expect(sidebarButton.bezelStyle == .circular)
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
