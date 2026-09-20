@@ -13,7 +13,7 @@ struct ProjectTabStripTests {
         let width = ProjectTabStripView.cellWidth(available: 800, count: 4)
         #expect(width == 198)
         // Cells plus rail padding fit without scrolling.
-        #expect(width * 4 + ProjectTabStripView.capsulePadding <= 800)
+        #expect(width * 4 + ProjectTabStripView.railPadding <= 800)
     }
 
     @Test func manyTabsOverflowAtMinimumWidth() {

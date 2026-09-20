@@ -8,13 +8,13 @@ import SwiftUI
 /// `NSToolbar` hosting view (workstream C): it depends on neither parent
 /// layout, has a fixed height (``stripHeight``) and a flexible width.
 ///
-/// Sizing formula: the capsule rail reserves ``capsulePadding`` points of
+/// Sizing formula: the tab rail reserves ``railPadding`` points of
 /// interior horizontal padding (3pt on each side). The remaining width is
 /// divided equally among all tabs and floored to whole points, so every
 /// complete tab cell — close space, label and cell padding included — has
 /// the same width:
 ///
-///     cellWidth = max(minCellWidth, floor((available - capsulePadding) / count))
+///     cellWidth = max(minCellWidth, floor((available - railPadding) / count))
 ///
 /// While the equal share fits, tabs fill the rail exactly (inter-cell
 /// separators are overlays and consume no layout width). Once the share
@@ -22,12 +22,15 @@ import SwiftUI
 /// and the rail scrolls horizontally instead of shrinking further. The
 /// strip is always shown, even for a single tab.
 struct ProjectTabStripView: View {
+    static let railShape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+    static let cellShape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+
     /// Minimum width of one complete tab cell. Below this the rail
     /// overflows into horizontal scrolling.
     static let minCellWidth: CGFloat = 96
 
-    /// Interior horizontal padding of the capsule rail (3pt per side).
-    static let capsulePadding: CGFloat = 6
+    /// Interior horizontal padding of the tab rail (3pt per side).
+    static let railPadding: CGFloat = 6
 
     /// Fixed strip height, matching the header slot and toolbar items.
     static let stripHeight: CGFloat = 32
@@ -40,7 +43,7 @@ struct ProjectTabStripView: View {
     /// See the type documentation for the formula.
     static func cellWidth(available: CGFloat, count: Int) -> CGFloat {
         guard count > 0 else { return minCellWidth }
-        return max(minCellWidth, floor((available - capsulePadding) / CGFloat(count)))
+        return max(minCellWidth, floor((available - railPadding) / CGFloat(count)))
     }
 
     @ObservedObject var model: TabSidebarModel
@@ -55,7 +58,7 @@ struct ProjectTabStripView: View {
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
-        .modifier(ProjectTabStripShade())
+        .modifier(ProjectTabStripShade(shape: Self.railShape))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -86,9 +89,9 @@ struct ProjectTabStripView: View {
                 }
                 // Read-only: scrolling the rail must never change selection.
                 .modifier(ProjectTabScrollPosition(target: Binding(get: { model.selection }, set: { _ in })))
-                .background(.quaternary.opacity(0.45), in: Capsule())
-                .overlay(Capsule().strokeBorder(.primary.opacity(0.06), lineWidth: 0.5))
-                .contentShape(Capsule())
+                .background(.quaternary.opacity(0.5), in: Self.railShape)
+                .overlay(Self.railShape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
+                .contentShape(Self.railShape)
                 .onDrop(
                     of: [.toasttyTerminalLayoutID, .ghosttySurfaceId],
                     delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
@@ -165,7 +168,7 @@ struct ProjectTabCell: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
                     .frame(height: 26)
-                    .contentShape(Capsule())
+                    .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Drag to reorder this tab or drop it into another terminal split.")
@@ -193,9 +196,9 @@ struct ProjectTabCell: View {
         .frame(width: width, height: 26)
         .background {
             if isSelected {
-                Color.clear.modifier(ProjectGlass())
+                Color.clear.modifier(ProjectGlass(shape: ProjectTabStripView.cellShape, interactive: true))
             } else if isHovered {
-                Capsule().fill(.primary.opacity(0.05))
+                ProjectTabStripView.cellShape.fill(.primary.opacity(0.06))
             }
         }
         .overlay(alignment: .trailing) {
@@ -692,28 +695,29 @@ final class ProjectTabMenuItem: NSMenuItem {
     @objc private func invoke() { handler() }
 }
 
-/// Keep the titlebar material inside the rounded tab rail. A rectangular
-/// material behind this toolbar item leaves visible square corners around
-/// the capsule, especially in dark appearance.
-private struct ProjectTabStripShade: ViewModifier {
+/// Keep the titlebar material inside the tab rail. A rectangular material
+/// behind this toolbar item leaves visible square corners in dark appearance.
+private struct ProjectTabStripShade<S: Shape>: ViewModifier {
+    let shape: S
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
     /// Applies the accessible material or opaque background for the tabbar.
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
-            content.background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+            content.background(Color(nsColor: .controlBackgroundColor), in: shape)
         } else {
             content.background {
-                VisualEffectBackground(material: .titlebar).clipShape(Capsule())
+                VisualEffectBackground(material: .titlebar).clipShape(shape)
             }
         }
     }
 }
 
-/// Liquid Glass capsule on macOS 26+, material fallback below. Never
+/// Tinted Liquid Glass on macOS 26+, material fallback below. Never
 /// simulated with gradients or shadows.
-struct ProjectGlass: ViewModifier {
+struct ProjectGlass<S: InsettableShape>: ViewModifier {
+    let shape: S
     var interactive = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -721,17 +725,21 @@ struct ProjectGlass: ViewModifier {
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
             content
-                .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                .overlay(Capsule().strokeBorder(.primary.opacity(0.3), lineWidth: 1))
+                .background(Color(nsColor: .controlBackgroundColor), in: shape)
+                .overlay(shape.strokeBorder(.primary.opacity(0.3), lineWidth: 1))
         } else {
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
-                content.glassEffect(.regular.interactive(interactive), in: Capsule())
+                content.glassEffect(
+                    .regular
+                        .tint(Color(nsColor: .controlBackgroundColor))
+                        .interactive(interactive),
+                    in: shape)
             } else {
-                content.background(.regularMaterial, in: Capsule())
+                content.background(.regularMaterial, in: shape)
             }
 #else
-            content.background(.regularMaterial, in: Capsule())
+            content.background(.regularMaterial, in: shape)
 #endif
         }
     }

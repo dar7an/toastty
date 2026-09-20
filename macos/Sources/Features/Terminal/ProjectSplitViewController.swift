@@ -61,7 +61,7 @@ final class ProjectSplitViewController: NSSplitViewController {
         self.terminalController = controller
         self.sidebarHostingController = NSHostingController(rootView: AnyView(EmptyView()))
         self.contentHostingController = NSHostingController(rootView: content)
-        self.sidebarSplitItem = NSSplitViewItem(sidebarWithViewController: sidebarHostingController)
+        self.sidebarSplitItem = NSSplitViewItem(contentListWithViewController: sidebarHostingController)
         self.contentSplitItem = NSSplitViewItem(viewController: contentHostingController)
         self.pendingInitialState = controller.sidebarState
         super.init(nibName: nil, bundle: nil)

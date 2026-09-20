@@ -27,7 +27,7 @@ struct ProjectWindowLayoutTests {
         #expect(window.titlebarSeparatorStyle == .line)
 
         // The shade fills the host with a titlebar material, clipped to the
-        // capsule rail by SwiftUI. Reduced transparency or increased contrast
+        // rounded rail by SwiftUI. Reduced transparency or increased contrast
         // (reported by virtualized runners) swaps the material for an opaque
         // fill, so there the rendered tab cells prove the strip is live.
         if let tabbarMaterial = descendants(of: host)

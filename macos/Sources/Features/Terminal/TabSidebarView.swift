@@ -846,9 +846,12 @@ struct ProjectSidebarListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     } else {
-                        Image(systemName: "folder")
+                        Image(systemName: "folder.fill")
                             .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(
+                                project.color.displayColor.map(Color.init(nsColor:))
+                                    ?? .accentColor)
                     }
                 }
                 .frame(width: 20, height: 20, alignment: .center)
