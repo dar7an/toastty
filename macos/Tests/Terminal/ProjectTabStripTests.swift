@@ -3,6 +3,18 @@ import Testing
 @testable import Ghostty
 
 struct ProjectTabStripTests {
+    @MainActor
+    @Test func hoverPreviewStaysOnScreenAtRailEdges() {
+        let screen = NSRect(x: -1440, y: 20, width: 1440, height: 900)
+        for x: CGFloat in [-1430, -750, -10] {
+            let anchor = NSRect(x: x, y: 860, width: 54, height: 28)
+            let frame = ProjectTabHoverPreview.frame(size: NSSize(width: 300, height: 240),
+                                                    below: anchor, on: screen)
+            #expect(screen.contains(frame))
+            #expect(frame.maxY == anchor.minY - 8)
+        }
+    }
+
     @Test func tabWindowMorphCanReverseWithoutJumping() {
         var morph = ProjectTabDragMorph()
         morph.advance(by: 0.06, reduceMotion: false)

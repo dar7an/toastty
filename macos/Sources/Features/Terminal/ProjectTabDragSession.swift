@@ -42,6 +42,7 @@ final class ProjectTabDragSession: NSObject {
     static func begin(from source: ProjectTabCellHostingView, event: NSEvent, grabPoint: NSPoint) {
         guard active == nil,
               source.rootView.row.window.windowController is TerminalController else { return }
+        ProjectTabHoverPreview.shared.dismiss()
         let drag = ProjectTabDragSession(source: source, grabPoint: grabPoint)
         NSApp.activate(ignoringOtherApps: true)
         drag.originalSelection?.makeKeyAndOrderFront(nil)
@@ -355,9 +356,7 @@ private final class ProjectTabDragPreview {
         tabSize = source.bounds.size
         tabImage = Self.snapshot(source)
         let window = source.rootView.row.window
-        let content = (window.contentView as? TerminalViewContainer)?
-            .projectSplitViewController?.contentSplitItem.viewController.view ?? window.contentView
-        windowImage = content.flatMap(Self.snapshot)
+        windowImage = ProjectTabSnapshot.image(of: window)
         title = source.rootView.row.title
         let scale = min(1, min(420 / max(1, window.frame.width), 320 / max(1, window.frame.height)))
         windowSize = NSSize(width: window.frame.width * scale, height: window.frame.height * scale)

@@ -6,6 +6,58 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
+    @Test func tabHoverPreviewNeverSelectsTheTabAndCancelsPendingPresentation() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        let preview = ProjectTabHoverPreview()
+        defer {
+            preview.dismiss()
+            tab.window = nil
+            tabWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        await drainMainQueue()
+        let group = try #require(tabWindow.tabGroup)
+        let strip = try #require(tabWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        let cells = descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+        let inactive = try #require(cells.first { $0.rootView.row.window === window })
+        let selected = try #require(cells.first { $0.rootView.row.window === tabWindow })
+        let point = NSPoint(x: inactive.bounds.midX, y: inactive.bounds.midY)
+        preview.hover(inactive, at: point)
+        #expect(preview.isPending)
+        #expect(!preview.isVisible)
+        preview.leave(inactive)
+        preview.show()
+        #expect(!preview.isPending)
+        #expect(!preview.isVisible)
+
+        preview.hover(inactive, at: point)
+        preview.show()
+        #expect(preview.isVisible)
+        #expect(group.selectedWindow === tabWindow)
+        let panel = try #require(tabWindow.childWindows?.first { $0 is NSPanel })
+        #expect(panel.ignoresMouseEvents)
+        #expect(!panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+        #expect(!panel.isKeyWindow)
+        // Preview dismissal must precede the normal click/drag path.
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: tabWindow)
+        #expect(!preview.isVisible)
+        preview.hover(selected, at: NSPoint(x: selected.bounds.midX, y: selected.bounds.midY))
+        #expect(!preview.isPending)
+        preview.hover(inactive, at: NSPoint(x: 10, y: inactive.bounds.midY))
+        #expect(!preview.isPending) // Close-button hover keeps its own tooltip.
+        #expect(group.windows == [window, tabWindow])
+    }
+
     @Test func nativeToolbarFillsAvailableWidthAndPreservesTerminalHeight() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)

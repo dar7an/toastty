@@ -207,7 +207,9 @@ struct ProjectTabCell: View {
                 .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Drag to reorder this tab or pull it into a new window.")
+            .accessibilityHint([row.pwd, shortcutHint,
+                                "Drag to reorder this tab or pull it into a new window."]
+                .compactMap { $0 }.joined(separator: "\n"))
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -276,7 +278,6 @@ struct ProjectTabCell: View {
                 dropState: $dropState,
                 session: dragSession))
         .motionAnimation(.easeOut(duration: 0.12), value: dropState)
-        .help([row.title, row.pwd, shortcutHint].compactMap { $0 }.joined(separator: "\n"))
     }
 
 }
@@ -486,6 +487,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window {
+            ProjectTabHoverPreview.shared.leave(self)
             reorderGesture?.finish(commit: false, animated: false)
             reorderGesture = nil
             mouseDownPoint = nil
@@ -504,6 +506,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         mouseDownPoint = point
         pressedClose = closeButtonRect.contains(point)
         setHovered(true)
+        ProjectTabHoverPreview.shared.dismiss()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -595,6 +598,18 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         var cell = cell
         cell.isHovered = tabIsHovered
         rootView = cell
+        ProjectTabHoverPreview.shared.validate(self)
+    }
+
+    var canShowHoverPreview: Bool {
+        !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
+            window?.isVisible == true && window?.attachedSheet == nil &&
+            !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty &&
+            rootView.row.window.projectSidebarModel.liftedTabID == nil
+    }
+
+    func canShowHoverPreview(at point: NSPoint) -> Bool {
+        canShowHoverPreview && visibleRect.contains(point) && !closeButtonRect.contains(point)
     }
 
     override func updateTrackingAreas() {
@@ -610,8 +625,15 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         }
     }
 
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
+    override func mouseEntered(with event: NSEvent) {
+        setHovered(true)
+        ProjectTabHoverPreview.shared.hover(self, at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(false)
+        ProjectTabHoverPreview.shared.leave(self)
+    }
 
     fileprivate func setHovered(_ hovered: Bool) {
         guard tabIsHovered != hovered else { return }
@@ -620,7 +642,8 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        makeProjectTabContextMenu(for: rootView.row.window)
+        ProjectTabHoverPreview.shared.dismiss()
+        return makeProjectTabContextMenu(for: rootView.row.window)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -655,6 +678,9 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
                 self.hoveredCell = cell
             }
             cell?.setHovered(true)
+            if event.type == .mouseMoved, let cell {
+                ProjectTabHoverPreview.shared.hover(cell, at: cell.convert(event.locationInWindow, from: nil))
+            }
             guard event.type == .rightMouseDown ||
                     (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
                   let menu = cell?.menu(for: event) else { return event }
