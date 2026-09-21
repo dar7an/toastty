@@ -21,7 +21,7 @@ struct ProjectTabCraftTests {
     }
 
     @Test func clickThroughCanSelectButCannotCloseATab() throws {
-        let fixture = Fixture()
+        let fixture = Fixture { _ in }
         defer { fixture.close() }
         let close = try fixture.event(.leftMouseDown, at: CGPoint(x: 10, y: 14))
         let select = try fixture.event(.leftMouseDown, at: CGPoint(x: 80, y: 14))
@@ -70,7 +70,7 @@ struct ProjectTabCraftTests {
     }
 
     @Test func anInactiveWindowDoesNotScheduleHoverPreviews() {
-        let fixture = Fixture()
+        let fixture = Fixture { _ in }
         defer { fixture.close() }
         fixture.window.orderFront(nil)
         fixture.host.layoutSubtreeIfNeeded()
@@ -110,7 +110,7 @@ struct ProjectTabCraftTests {
         let window: NSWindow
         let host: ProjectTabCellHostingView
 
-        init(onSelect: @escaping (TabSidebarModel.Row.ID) -> Void = { _ in }) {
+        init(onSelect: @escaping (TabSidebarModel.Row.ID) -> Void) {
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 190, height: 28),
                               styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
