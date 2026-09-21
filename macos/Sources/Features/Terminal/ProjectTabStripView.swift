@@ -647,9 +647,18 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     /// Restrict preview placement and hover tracking to this tab's visible part.
     var hoverPreviewRect: NSRect { bounds.intersection(visibleRect) }
 
+    /// In full screen AppKit may host the toolbar in an auxiliary window.
+    /// The selected terminal, not that non-key host, owns interaction focus.
+    var previewInteractionWindow: NSWindow? {
+        guard let window else { return nil }
+        if window.isKeyWindow { return window }
+        return rootView.row.window.tabGroup?.selectedWindow ?? window
+    }
+
     var canShowHoverPreview: Bool {
         !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
-            window?.isVisible == true && window?.isKeyWindow == true && window?.attachedSheet == nil &&
+            window?.isVisible == true && previewInteractionWindow?.isKeyWindow == true &&
+            previewInteractionWindow?.attachedSheet == nil &&
             !isHiddenOrHasHiddenAncestor && !hoverPreviewRect.isEmpty &&
             rootView.row.window.projectSidebarModel.liftedTabID == nil
     }

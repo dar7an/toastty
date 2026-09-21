@@ -84,6 +84,27 @@ struct ProjectTabCraftTests {
         #expect(!preview.isVisible)
     }
 
+    @Test func auxiliaryToolbarResolvesTheSelectedTerminalAsInteractionWindow() throws {
+        let frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let selected = NSWindow(contentRect: frame, styleMask: .titled, backing: .buffered, defer: false)
+        let tab = NSWindow(contentRect: frame, styleMask: .titled, backing: .buffered, defer: false)
+        let toolbar = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        for window in [selected, tab, toolbar] { window.isReleasedWhenClosed = false }
+        defer {
+            toolbar.contentView = nil
+            for window in [toolbar, tab, selected] { window.close() }
+        }
+        selected.addTabbedWindow(tab, ordered: .above)
+        let group = try #require(selected.tabGroup)
+        group.selectedWindow = selected
+        let row = TabSidebarModel.Row(window: tab, project: TerminalProject(), title: "Build")
+        let host = ProjectTabCellHostingView(rootView: ProjectTabCell(
+            row: row, isSelected: false, onSelect: { _ in }, showSeparator: false, width: 190))
+        toolbar.contentView = host
+        #expect(host.window === toolbar)
+        #expect(host.previewInteractionWindow === selected)
+    }
+
     @MainActor
     private struct Fixture {
         let window: NSWindow

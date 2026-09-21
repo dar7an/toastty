@@ -32,7 +32,7 @@ final class ProjectTabHoverPreview: NSObject {
         dismiss()
         source = cell
         tabWindow = cell.rootView.row.window
-        observeDismissal(in: cell.window)
+        observeDismissal(in: cell.window, interactionWindow: cell.previewInteractionWindow)
         let timer = Timer(timeInterval: nextDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.show() }
         }
@@ -67,9 +67,9 @@ final class ProjectTabHoverPreview: NSObject {
         panel = nil
     }
 
-    private func observeDismissal(in window: NSWindow?) {
+    private func observeDismissal(in window: NSWindow?, interactionWindow: NSWindow?) {
         let notifications: [(Notification.Name, AnyObject?)] = [
-            (NSWindow.didResignKeyNotification, window), (NSWindow.willCloseNotification, window),
+            (NSWindow.didResignKeyNotification, interactionWindow), (NSWindow.willCloseNotification, window),
             (NSWindow.didMoveNotification, window), (NSWindow.didResizeNotification, window),
             (NSWindow.willMiniaturizeNotification, window),
             (NSApplication.willResignActiveNotification, nil), (NSMenu.didBeginTrackingNotification, nil)
