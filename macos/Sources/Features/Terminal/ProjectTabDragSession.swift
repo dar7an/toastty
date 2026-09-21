@@ -20,6 +20,7 @@ final class ProjectTabDragSession: NSObject {
     private let grabFraction: CGFloat
     private let grabTopOffset: CGFloat
     private var eventMonitor: Any?
+    private var cancellationObservers: [NSObjectProtocol] = []
     private var previewWindow: NSPanel?
     private var previewImageView: NSImageView?
     private var pointer = NSPoint.zero
@@ -27,6 +28,7 @@ final class ProjectTabDragSession: NSObject {
     private var morph = ProjectTabDragMorph()
     private var lastFrameTime: CFTimeInterval = 0
     private var cancelled = false
+    private var sourceIsClosing = false
 
     init(source: ProjectTabCellHostingView, grabPoint: NSPoint) {
         self.source = source
@@ -72,8 +74,26 @@ final class ProjectTabDragSession: NSObject {
             return nil
         }
         drag.lift()
+        drag.observeCancellation()
         drag.startAnimation()
         NSCursor.closedHand.set()
+    }
+
+    private func observeCancellation() {
+        // A local mouse-up is not guaranteed after switching apps or closing
+        // the source. Release the global session so a later drag can start.
+        let notifications: [(Notification.Name, AnyObject?)] = [
+            (NSApplication.willResignActiveNotification, nil),
+            (NSWindow.willCloseNotification, sourceWindow)
+        ]
+        cancellationObservers = notifications.map { name, object in
+            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    if name == NSWindow.willCloseNotification { self?.sourceIsClosing = true }
+                    self?.end(cancelled: true, at: self?.pointer ?? .zero)
+                }
+            }
+        }
     }
 
     private func showPreview() {
@@ -121,9 +141,7 @@ final class ProjectTabDragSession: NSObject {
         let strip = window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
         }?.view
-        let overRail = strip.map {
-            window.convertToScreen($0.convert($0.bounds, to: nil)).insetBy(dx: 0, dy: -8).contains(point)
-        } ?? false
+        let overRail = strip.flatMap(Self.screenFrame)?.insetBy(dx: 0, dy: -8).contains(point) ?? false
         let target: CGFloat = overRail ? 0 : 1
         if morph.target != target {
             morph.target = target
@@ -139,6 +157,8 @@ final class ProjectTabDragSession: NSObject {
         animationTimer = nil
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
         eventMonitor = nil
+        cancellationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        cancellationObservers.removeAll()
         previewWindow?.close()
         previewWindow = nil
         previewImageView = nil
@@ -156,7 +176,7 @@ final class ProjectTabDragSession: NSObject {
         Self.feedback.railTarget = nil
         model.liftedTabID = nil
         guard let controller = sourceWindow.windowController as? TerminalController,
-              !controller.isWindowClosed, !controller.surfaceTree.isEmpty else {
+              !sourceIsClosing, !controller.isWindowClosed, !controller.surfaceTree.isEmpty else {
             model.refresh()
             return
         }
@@ -199,10 +219,25 @@ final class ProjectTabDragSession: NSObject {
     /// an obscured terminal behind another Toastty window or a sheet.
     private func destinationWindow(at point: NSPoint) -> NSWindow? {
         let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
-        guard let window = NSApp.window(withWindowNumber: number),
-              window.attachedSheet == nil,
-              window.windowController is TerminalController else { return nil }
+        guard let hitWindow = NSApp.window(withWindowNumber: number),
+              let window = Self.terminalWindow(hosting: hitWindow),
+              window.attachedSheet == nil else { return nil }
         return window.tabGroup?.selectedWindow ?? window
+    }
+
+    /// In full screen AppKit moves the toolbar to a separate window. Resolve
+    /// that host back to its terminal without depending on private class names.
+    static func terminalWindow(hosting window: NSWindow) -> NSWindow? {
+        if window.windowController is TerminalController { return window }
+        return TerminalController.all.compactMap(\.window).first { candidate in
+            candidate.isVisible && candidate.toolbar?.items.contains {
+                $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier && $0.view?.window === window
+            } == true
+        }
+    }
+
+    static func screenFrame(of view: NSView) -> NSRect? {
+        view.window?.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     private func splitTarget(
@@ -256,8 +291,7 @@ final class ProjectTabDragSession: NSObject {
             view.subviews.flatMap { ($0 as? ProjectTabCellHostingView).map { [$0] } ?? cells(in: $0) }
         }
         for cell in cells(in: strip) {
-            let frame = window.convertToScreen(cell.convert(cell.bounds, to: nil))
-            guard frame.contains(point),
+            guard let frame = Self.screenFrame(of: cell), frame.contains(point),
                   TerminalLayoutCoordinator.shared.canDropInTabBar(.tab(controller.projectTabID),
                                                                     beside: cell.rootView.row.window)
             else { continue }

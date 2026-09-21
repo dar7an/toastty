@@ -246,7 +246,8 @@ struct ProjectActionRoutingTests {
         #expect((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController?.model?.projects.count == 1)
     }
 
-    @Test func liftedTabDropsIntoNeighborAsSplitWithoutLosingSurfaces() async throws {
+    @Test(arguments: [false, true])
+    func liftedTabDropsIntoNeighborAsSplitWithoutLosingSurfaces(detached: Bool) async throws {
         let app = try Self.testApp()
         let view = Ghostty.SurfaceView(try #require(app.app))
         let controller = TerminalController(app, withSurfaceTree: .init(view: view), usesProjectSidebar: true)
@@ -270,6 +271,13 @@ struct ProjectActionRoutingTests {
         }
         let cell = try #require(descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
             .first { $0.rootView.row.window === tabWindow })
+        if detached {
+            #expect(cell.detachForWindowDrag())
+            await drainMainQueue()
+            // Rail reorder is group-local; split transfers retain the shared
+            // coordinator's existing same-project, cross-window behavior.
+            #expect(!TerminalLayoutCoordinator.shared.canDropInTabBar(.tab(tab.projectTabID), beside: window))
+        }
         let drag = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.midX, y: 14))
         drag.lift()
         await drainMainQueue()

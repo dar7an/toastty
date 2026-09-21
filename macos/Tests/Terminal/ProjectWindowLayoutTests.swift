@@ -58,6 +58,70 @@ struct ProjectWindowLayoutTests {
         #expect(group.windows == [window, tabWindow])
     }
 
+    @Test func tabDragCancellationReleasesTheSessionForTheNextGesture() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer {
+            NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: nil)
+            tab.window = nil
+            tabWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        let group = try #require(tabWindow.tabGroup)
+        for notification in [NSApplication.willResignActiveNotification, NSWindow.willCloseNotification] {
+            group.selectedWindow = tabWindow
+            await drainMainQueue()
+            let strip = try #require(tabWindow.toolbar?.items.first {
+                $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+            }?.view)
+            let cell = try #require(descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+                .first { $0.rootView.row.window === tabWindow })
+            let point = NSPoint(x: cell.bounds.midX, y: cell.bounds.midY)
+            let event = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDragged, location: cell.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: tabWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            ProjectTabDragSession.begin(from: cell, event: event, grabPoint: point)
+            #expect(group.tabSidebarModel.liftedTabID == ObjectIdentifier(tabWindow))
+            NotificationCenter.default.post(name: notification, object: tabWindow)
+            #expect(group.tabSidebarModel.liftedTabID == nil)
+            #expect(group.windows == [window, tabWindow])
+        }
+    }
+
+    @Test func movedToolbarResolvesItsTerminalAndUsesItsOwnScreenCoordinates() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        await drainMainQueue()
+        let toolbarWindow = NSWindow(contentRect: NSRect(x: 600, y: 600, width: 800, height: 60),
+                                     styleMask: .borderless, backing: .buffered, defer: false)
+        toolbarWindow.isReleasedWhenClosed = false
+        defer {
+            toolbarWindow.contentView = nil
+            toolbarWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        let strip = try #require(window.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        // Model AppKit reparenting the toolbar into its fullscreen host.
+        strip.removeFromSuperview()
+        toolbarWindow.contentView = strip
+        #expect(ProjectTabDragSession.terminalWindow(hosting: toolbarWindow) === window)
+        let frame = try #require(ProjectTabDragSession.screenFrame(of: strip))
+        #expect(frame == toolbarWindow.convertToScreen(strip.convert(strip.bounds, to: nil)))
+        #expect(frame != window.convertToScreen(strip.convert(strip.bounds, to: nil)))
+    }
+
     @Test func nativeToolbarFillsAvailableWidthAndPreservesTerminalHeight() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -84,9 +148,11 @@ struct ProjectWindowLayoutTests {
         #expect(hostFrame.width > 0)
         #expect(window.titlebarSeparatorStyle == .line)
 
-        #expect(descendants(of: host)
+        let hasRailMaterial = descendants(of: host)
             .compactMap { $0 as? NSVisualEffectView }
-            .contains { $0.material == .titlebar })
+            .contains { $0.material == .titlebar }
+        #expect(hasRailMaterial || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ||
+                NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
         #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
@@ -147,7 +213,9 @@ struct ProjectWindowLayoutTests {
             split.applySidebarState(SidebarState(isVisible: isVisible, expandedWidth: 260), animated: false)
             container.layoutSubtreeIfNeeded()
             await drainMainQueue()
-            #expect(abs(toolbarBackground.frame.minX - (isVisible ? 260 : 0)) < 1)
+            let contentLeft = split.contentViewForSizing.convert(split.contentViewForSizing.bounds, to: container).minX
+            #expect(abs(toolbarBackground.frame.minX - contentLeft) < 1)
+            #expect(isVisible ? contentLeft >= 260 : abs(contentLeft) < 1)
             #expect(abs(toolbarBackground.frame.maxX - container.bounds.maxX) < 1)
         }
     }

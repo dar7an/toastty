@@ -844,25 +844,12 @@ struct ProjectSidebarListView: View {
                         }
                     }
                 }
-                // Reserve the indicator gutter in every state so adding a
-                // project color never changes text width or truncation.
-                .padding(.trailing, 14)
             }
             .padding(.vertical, 5)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
             .onTapGesture {
                 model.clickProject(project.id)
-            }
-            .overlay(alignment: .trailing) {
-                if let displayColor = project.color.displayColor {
-                    Circle()
-                        .fill(Color(nsColor: displayColor))
-                        .frame(width: 6, height: 6)
-                        .padding(.trailing, 4)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
             }
         }
 
