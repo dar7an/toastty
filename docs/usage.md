@@ -76,8 +76,18 @@ the terminal configuration directory is shared by Toastty builds.
 
 ## Updates and support
 
-**View Toastty Releases…** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
-Automatic installation is disabled until Toastty has a signed update channel.
+By default, Toastty Nightly checks for updates every six hours and downloads them
+in the background. It installs a prepared update when you quit normally. Choose
+**Check for Updates…** in the app menu to check manually, download an update,
+or choose **Install and Relaunch**. Normal warnings about running processes
+still apply; background updates do not restart the app.
+
+Set `auto-update = check` to check without automatic downloads, or
+`auto-update = off` to turn off background checks. Manual checks remain available.
+See [Nightly updates](releases.md#nightly-updates-without-notarization) for installation
+and update details. Builds without the updater show **View Toastty Releases…**
+instead, which opens [Toastty releases](https://github.com/dar7an/toastty/releases).
+
 Crash reporting is disabled by default in Toastty builds.
 Toastty never installs an update from Ghostty's appcast.
 
