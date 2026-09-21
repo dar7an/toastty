@@ -8,42 +8,63 @@ import SwiftUI
 /// `NSToolbar` hosting view (workstream C): it depends on neither parent
 /// layout, has a fixed height (``stripHeight``) and a flexible width.
 ///
-/// Sizing formula: the tab rail reserves ``railPadding`` points of
-/// interior horizontal padding (3pt on each side). The remaining width is
-/// divided equally among all tabs and floored to whole points, so every
-/// complete tab cell — close space, label and cell padding included — has
-/// the same width:
-///
-///     cellWidth = max(minCellWidth, floor((available - railPadding) / count))
-///
-/// While the equal share fits, tabs fill the rail exactly (inter-cell
-/// separators are overlays and consume no layout width). Once the share
-/// would drop below ``minCellWidth``, every cell stays at ``minCellWidth``
-/// and the rail scrolls horizontally instead of shrinking further. The
-/// strip is always shown, even for a single tab.
+/// The selected tab keeps its title while inactive tabs compress toward
+/// icon-only cells. The rail scrolls only after the selected tab and compact
+/// inactive cells no longer fit.
 struct ProjectTabStripView: View {
-    static let railShape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-    static let cellShape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+    static let cellShape = Capsule()
 
-    /// Minimum width of one complete tab cell. Below this the rail
-    /// overflows into horizontal scrolling.
-    static let minCellWidth: CGFloat = 96
+    static let compactCellWidth: CGFloat = 54
+    static let minimumSelectedWidth: CGFloat = 120
+    static let selectedPreferredWidth: CGFloat = 190
+    static let selectedWidthBonus: CGFloat = 40
+    static let compactLabelThreshold: CGFloat = 84
 
-    /// Interior horizontal padding of the tab rail (3pt per side).
-    static let railPadding: CGFloat = 6
+    /// Interior horizontal padding of the tab row (2pt per side).
+    static let railPadding: CGFloat = 4
 
-    /// Fixed strip height, matching the header slot and toolbar items.
+    /// Fixed row height, matching Safari's compact native tab rhythm.
     static let stripHeight: CGFloat = 32
+    static let cellHeight: CGFloat = 28
 
     /// Width always reserved for the close button, even while hidden, so
     /// labels never jump when it appears.
     static let closeButtonWidth: CGFloat = 20
 
-    /// Equal cell width for `count` tabs in `available` points of rail.
-    /// See the type documentation for the formula.
-    static func cellWidth(available: CGFloat, count: Int) -> CGFloat {
-        guard count > 0 else { return minCellWidth }
-        return max(minCellWidth, floor((available - railPadding) / CGFloat(count)))
+    static func cellWidths(
+        available: CGFloat,
+        count: Int,
+        selectedIndex: Int?
+    ) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        let interior = max(0, floor(available - railPadding))
+        guard count > 1 else {
+            return [max(minimumSelectedWidth, interior)]
+        }
+        guard let selectedIndex, (0..<count).contains(selectedIndex) else {
+            let width = max(compactCellWidth, floor(interior / CGFloat(count)))
+            return Array(repeating: width, count: count)
+        }
+
+        let equalBase = floor((interior - selectedWidthBonus) / CGFloat(count))
+        let equalSelected = equalBase + selectedWidthBonus
+        let compactPreservingSelected = min(
+            selectedPreferredWidth,
+            interior - compactCellWidth * CGFloat(count - 1))
+        var selectedWidth = max(equalSelected, compactPreservingSelected)
+        var inactiveWidth = floor(
+            (interior - selectedWidth) / CGFloat(count - 1))
+
+        if inactiveWidth < compactCellWidth {
+            inactiveWidth = compactCellWidth
+            selectedWidth = max(
+                minimumSelectedWidth,
+                interior - inactiveWidth * CGFloat(count - 1))
+        }
+
+        var widths = Array(repeating: inactiveWidth, count: count)
+        widths[selectedIndex] = max(minimumSelectedWidth, selectedWidth)
+        return widths
     }
 
     @ObservedObject var model: TabSidebarModel
@@ -58,7 +79,6 @@ struct ProjectTabStripView: View {
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
-        .modifier(ProjectTabStripShade(shape: Self.railShape))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -67,9 +87,16 @@ struct ProjectTabStripView: View {
 
     private var rail: some View {
         GeometryReader { geometry in
+            let selectedIndex = model.visibleTabs.firstIndex {
+                $0.id == model.selection
+            }
+            let widths = Self.cellWidths(
+                available: geometry.size.width,
+                count: model.visibleTabs.count,
+                selectedIndex: selectedIndex)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 0) {
+                    HStack(spacing: 0) {
                         ForEach(Array(model.visibleTabs.enumerated()), id: \.element.id) { index, row in
                             ProjectTabCellHost(
                                 row: row,
@@ -77,21 +104,19 @@ struct ProjectTabStripView: View {
                                 onSelect: onSelect,
                                 showSeparator: showsSeparator(at: index),
                                 shortcutHint: shortcutHint(index),
-                                width: Self.cellWidth(
-                                    available: geometry.size.width,
-                                    count: model.visibleTabs.count)
+                                width: widths[index]
                             )
                             .id(row.id)
                         }
                     }
                     .modifier(ProjectTabScrollTargets())
-                    .padding(3)
+                    .motionAnimation(.easeOut(duration: 0.18), value: model.selection)
+                    .padding(.horizontal, Self.railPadding / 2)
+                    .padding(.vertical, (Self.stripHeight - Self.cellHeight) / 2)
                 }
                 // Read-only: scrolling the rail must never change selection.
                 .modifier(ProjectTabScrollPosition(target: Binding(get: { model.selection }, set: { _ in })))
-                .background(.quaternary.opacity(0.5), in: Self.railShape)
-                .overlay(Self.railShape.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
-                .contentShape(Self.railShape)
+                .contentShape(Rectangle())
                 .onDrop(
                     of: [.toasttyTerminalLayoutID, .ghosttySurfaceId],
                     delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
@@ -160,15 +185,23 @@ struct ProjectTabCell: View {
         let isCloseVisible = isHovered || closeFocused
         return ZStack(alignment: .leading) {
             Button { onSelect(row.id) } label: {
-                Text(row.title)
-                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
-                    .frame(height: 26)
-                    .contentShape(ProjectTabStripView.cellShape)
+                Group {
+                    if !isSelected && width < ProjectTabStripView.compactLabelThreshold {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(row.title)
+                            .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: ProjectTabStripView.cellHeight)
+                .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Drag to reorder this tab or drop it into another terminal split.")
@@ -193,7 +226,7 @@ struct ProjectTabCell: View {
             .accessibilityLabel("Close \(row.title)")
             .padding(.leading, 4)
         }
-        .frame(width: width, height: 26)
+        .frame(width: width, height: ProjectTabStripView.cellHeight)
         .background {
             if isSelected {
                 Color.clear.modifier(ProjectGlass(shape: ProjectTabStripView.cellShape, interactive: true))
@@ -214,7 +247,7 @@ struct ProjectTabCell: View {
             if showSeparator {
                 Rectangle()
                     .fill(ProjectChrome.separatorColor)
-                    .frame(width: ProjectChrome.hairline(displayScale: displayScale), height: 14)
+                    .frame(width: ProjectChrome.hairline(displayScale: displayScale), height: 16)
                     .allowsHitTesting(false)
             }
         }
@@ -249,7 +282,7 @@ private struct ProjectTabDropIndicator: View {
     var body: some View {
         Rectangle()
             .fill(Color.accentColor)
-            .frame(width: 2, height: 22)
+            .frame(width: 2, height: 24)
             .frame(maxWidth: .infinity, alignment: alignment)
             .allowsHitTesting(false)
     }
@@ -431,7 +464,7 @@ private struct ProjectTabCellHost: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ProjectTabCellHostingView,
                       context: Context) -> CGSize? {
-        CGSize(width: width, height: 26)
+        CGSize(width: width, height: ProjectTabStripView.cellHeight)
     }
 }
 
@@ -533,7 +566,11 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     }
 
     private var closeButtonRect: NSRect {
-        NSRect(x: 4, y: (bounds.height - 22) / 2, width: ProjectTabStripView.closeButtonWidth, height: 22)
+        NSRect(
+            x: 4,
+            y: (bounds.height - 22) / 2,
+            width: ProjectTabStripView.closeButtonWidth,
+            height: 22)
     }
 
     func update(_ cell: ProjectTabCell) {
@@ -693,25 +730,6 @@ final class ProjectTabMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func invoke() { handler() }
-}
-
-/// Keep the titlebar material inside the tab rail. A rectangular material
-/// behind this toolbar item leaves visible square corners in dark appearance.
-private struct ProjectTabStripShade<S: Shape>: ViewModifier {
-    let shape: S
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    /// Applies the accessible material or opaque background for the tabbar.
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content.background(Color(nsColor: .controlBackgroundColor), in: shape)
-        } else {
-            content.background {
-                VisualEffectBackground(material: .titlebar).clipShape(shape)
-            }
-        }
-    }
 }
 
 /// Tinted Liquid Glass on macOS 26+, material fallback below. Never

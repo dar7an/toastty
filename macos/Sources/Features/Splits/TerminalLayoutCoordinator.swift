@@ -692,6 +692,7 @@ final class TerminalLayoutCoordinator {
         let clampedIndex = max(0, min(targetIndex, windows.count - 1))
         guard clampedIndex != currentIndex else { return }
         let targetWindow = windows[clampedIndex]
+        let selectedWindow = tabGroup.selectedWindow
 
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
@@ -699,7 +700,7 @@ final class TerminalLayoutCoordinator {
         targetWindow.addTabbedWindowSafely(
             window,
             ordered: clampedIndex < currentIndex ? .below : .above)
-        window.makeKey()
+        (selectedWindow ?? window).makeKey()
         NSAnimationContext.endGrouping()
     }
     private func projectsMatch(

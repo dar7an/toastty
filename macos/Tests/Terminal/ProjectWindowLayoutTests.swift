@@ -32,23 +32,10 @@ struct ProjectWindowLayoutTests {
         #expect(hostFrame.width > 0)
         #expect(window.titlebarSeparatorStyle == .line)
 
-        // The shade fills the host with a titlebar material, clipped to the
-        // rounded rail by SwiftUI. Reduced transparency or increased contrast
-        // (reported by virtualized runners) swaps the material for an opaque
-        // fill, so there the rendered tab cells prove the strip is live.
-        if let tabbarMaterial = descendants(of: host)
-            .compactMap({ $0 as? NSVisualEffectView })
-            .first(where: { $0.material == .titlebar }) {
-            let tabbarMaterialFrame = tabbarMaterial.convert(tabbarMaterial.bounds, to: host)
-            #expect(tabbarMaterialFrame.minX <= host.bounds.minX + 1)
-            #expect(tabbarMaterialFrame.maxX >= host.bounds.maxX - 1)
-            #expect(tabbarMaterialFrame.minY <= host.bounds.minY + 1)
-            #expect(tabbarMaterialFrame.maxY >= host.bounds.maxY - 1)
-        } else {
-            #expect(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-                || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
-            #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
-        }
+        #expect(!descendants(of: host)
+            .compactMap { $0 as? NSVisualEffectView }
+            .contains { $0.material == .titlebar })
+        #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
         })
@@ -156,12 +143,14 @@ struct ProjectWindowLayoutTests {
     }
 
     @Test func nativeReorderCrossesMidpointsAndMovesOnlyInterveningTabs() {
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 49, width: 100, count: 4) == 1)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 51, width: 100, count: 4) == 2)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -51, width: 100, count: 4) == 0)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 900, width: 100, count: 4) == 3)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: .infinity, width: 100, count: 4) == 1)
-        #expect(ProjectTabReorderGesture.neighborOffset(index: 2, source: 1, destination: 3, width: 100) == -100)
+        let widths: [CGFloat] = [100, 160, 80, 120]
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 119, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 121, widths: widths) == 2)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -129, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -131, widths: widths) == 0)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 900, widths: widths) == 3)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: .infinity, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.neighborOffset(index: 2, source: 1, destination: 3, width: 160) == -160)
         #expect(ProjectTabReorderGesture.neighborOffset(index: 0, source: 1, destination: 3, width: 100) == 0)
         #expect(ProjectTabReorderGesture.neighborOffset(index: 1, source: 3, destination: 0, width: 100) == 100)
     }
