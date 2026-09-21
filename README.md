@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/dar7an/toastty/releases/tag/nightly">Download</a>
+  ·
   <a href="https://github.com/dar7an/toastty/issues">Issues</a>
   ·
   <a href="docs/usage.md">Usage</a>
@@ -45,16 +47,45 @@ the inherited work and its authors are documented in
 ## See Toastty
 
 <p align="center">
-  <img src="docs/screenshots/workspaces-layout-dark.png" alt="Toastty in dark appearance with three projects in the sidebar and three tabs in the selected project.">
+  <img src="docs/screenshots/workspace-overview.png" alt="Toastty workspace with project sidebar, tabs for codex, devin, claude, and droid, and an OpenAI Codex session showing daily token usage.">
 </p>
 
-The workspace layout stays clear as your projects and tabs grow.
+<p align="center">Projects, tabs, and panes stay together so you can move between contexts without losing your place.</p>
+
+<p align="center">
+  <img src="docs/screenshots/tab-hover-preview.png" alt="Hovering the devin tab shows a live preview of that tab's terminal content.">
+</p>
+
+<p align="center">Hover a tab to preview its terminal before switching.</p>
+
+<p align="center">
+  <img src="docs/screenshots/split-pane-start.png" alt="Starting a vertical split with a shell on the left and an empty pane on the right." width="48%">
+  &nbsp;
+  <img src="docs/screenshots/split-side-by-side.png" alt="Side-by-side split with Codex usage on the left and Devin CLI usage on the right." width="48%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/split-nested.png" alt="Nested split layout with Codex on the left and Devin above Claude Code stats on the right.">
+</p>
+
+<p align="center">Split in four directions and nest panes when you need more than one session in view.</p>
+
+<p align="center">
+  <img src="docs/screenshots/project-context-menu.png" alt="Project context menu with rename, emoji, appearance reset, delete, new project, and project color swatches." width="48%">
+  &nbsp;
+  <img src="docs/screenshots/tab-context-menu.png" alt="Tab context menu with split layouts, rename, close actions, move to new window, and tab color swatches." width="48%">
+</p>
+
+<p align="center">Right-click a project or tab to rename it, set a color, or rearrange the workspace.</p>
 
 ## Project status
 
-Toastty is a development preview. It is currently built from source, and its
-behavior and configuration may change. A signed and notarized public release,
-automatic updates, and a stable release channel are not configured yet. See
+Toastty is a development preview, and its behavior and configuration may
+change. An unsigned preview `Toastty.dmg` for the latest green commit on `main`
+is published as a [nightly prerelease](https://github.com/dar7an/toastty/releases/tag/nightly).
+It is not signed or notarized, so macOS will warn on first launch; right-click
+the app and choose **Open**. A signed and notarized public release, automatic
+updates, and a stable release channel are not configured yet. See
 [release readiness](docs/releases.md) for the requirements before publishing a
 release.
 
