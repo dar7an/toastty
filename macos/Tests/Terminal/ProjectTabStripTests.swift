@@ -3,6 +3,24 @@ import Testing
 @testable import Ghostty
 
 struct ProjectTabStripTests {
+    @Test func tabWindowMorphCanReverseWithoutJumping() {
+        var morph = ProjectTabDragMorph()
+        morph.advance(by: 0.06, reduceMotion: false)
+        #expect(morph.value > 0 && morph.value < 1)
+        let position = morph.value
+        let velocity = morph.velocity
+        morph.target = 0
+        #expect(morph.value == position)
+        #expect(morph.velocity == velocity)
+        for _ in 0..<60 { morph.advance(by: 1 / 60, reduceMotion: false) }
+        #expect(morph.value == 0)
+        #expect(morph.isSettled)
+        morph.target = 1
+        morph.advance(by: 0, reduceMotion: true)
+        #expect(morph.value == 1)
+        #expect(morph.isSettled)
+    }
+
     @Test func singleTabFillsRail() {
         #expect(ProjectTabStripView.cellWidths(
             available: 800,

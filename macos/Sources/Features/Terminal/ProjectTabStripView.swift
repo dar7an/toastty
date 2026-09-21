@@ -88,17 +88,17 @@ struct ProjectTabStripView: View {
 
     private var rail: some View {
         GeometryReader { geometry in
-            let selectedIndex = model.visibleTabs.firstIndex {
+            let selectedIndex = model.railTabs.firstIndex {
                 $0.id == model.selection
             }
             let widths = Self.cellWidths(
                 available: geometry.size.width,
-                count: model.visibleTabs.count,
+                count: model.railTabs.count,
                 selectedIndex: selectedIndex)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
-                        ForEach(Array(model.visibleTabs.enumerated()), id: \.element.id) { index, row in
+                        ForEach(Array(model.railTabs.enumerated()), id: \.element.id) { index, row in
                             ProjectTabCellHost(
                                 row: row,
                                 isSelected: row.id == model.selection,
@@ -112,6 +112,7 @@ struct ProjectTabStripView: View {
                     }
                     .modifier(ProjectTabScrollTargets())
                     .motionAnimation(.easeOut(duration: 0.18), value: model.selection)
+                    .motionAnimation(.easeOut(duration: 0.18), value: model.liftedTabID)
                     .padding(.horizontal, Self.railPadding / 2)
                     .padding(.vertical, (Self.stripHeight - Self.cellHeight) / 2)
                 }
@@ -123,7 +124,7 @@ struct ProjectTabStripView: View {
                     delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
                 .onAppear { revealSelection(proxy) }
                 .onChange(of: model.selection) { _ in revealSelection(proxy) }
-                .onChange(of: model.visibleTabs.map(\.id)) { _ in revealSelection(proxy) }
+                .onChange(of: model.railTabs.map(\.id)) { _ in revealSelection(proxy) }
                 .onChange(of: geometry.size.width) { _ in revealSelection(proxy) }
             }
         }
@@ -145,7 +146,7 @@ struct ProjectTabStripView: View {
     /// the selected tab. They are overlays, so they take no layout width
     /// and the equal-share sizing stays exact.
     private func showsSeparator(at index: Int) -> Bool {
-        let tabs = model.visibleTabs
+        let tabs = model.railTabs
         guard index > 0, index < tabs.count else { return false }
         return tabs[index].id != model.selection && tabs[index - 1].id != model.selection
     }
@@ -179,6 +180,7 @@ struct ProjectTabCell: View {
     @Environment(\.displayScale) private var displayScale
     @State private var dropState: ProjectTabDropState = .idle
     @StateObject private var dragSession = TerminalLayoutDragSession()
+    @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
@@ -253,8 +255,10 @@ struct ProjectTabCell: View {
             }
         }
         .overlay {
-            switch TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
-                ? dropState : .idle {
+            switch tabDragFeedback.railTarget?.windowID == row.id
+                ? tabDragFeedback.railTarget?.position ?? .idle
+                : (TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
+                   ? dropState : .idle) {
             case .idle:
                 EmptyView()
             case .before:
@@ -400,14 +404,14 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
     func dropExited(info: DropInfo) { session.end() }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        let valid = model.visibleTabs.last.map {
+        let valid = model.railTabs.last.map {
             TerminalLayoutCoordinator.shared.canDropInTabBar(session.payload, beside: $0.window)
         } ?? false
         return DropProposal(operation: valid ? .move : .forbidden)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let targetRow = model.visibleTabs.last,
+        guard let targetRow = model.railTabs.last,
               targetRow.window.windowController is TerminalController else { return false }
 
         if let payload = session.payload {
@@ -524,11 +528,12 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = mouseDownPoint, !pressedClose,
-              let controller = rootView.row.window.windowController as? TerminalController else { return }
+              rootView.row.window.windowController is TerminalController else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
         // Stay attached to the rail for horizontal reordering. Pulling beyond
-        // the tab row hands the same pointer gesture to the detached window.
+        // the tab row lifts a window preview into a continuous drag gesture,
+        // which can still land on a terminal pane or return to the rail.
         if abs(point.y - origin.y) <= Self.tearOffDistance {
             if reorderGesture == nil {
                 reorderGesture = ProjectTabReorderGesture(source: self)
@@ -552,8 +557,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         reorderGesture = nil
         mouseDownPoint = nil
         setHovered(false)
-        detachForWindowDrag()
-        controller.window?.performDrag(with: event)
+        ProjectTabDragSession.begin(from: self, event: event, grabPoint: origin)
     }
 
     @discardableResult

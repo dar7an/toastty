@@ -256,6 +256,9 @@ final class TabSidebarModel: ObservableObject {
     @Published private(set) var rows: [Row] = []
     @Published private(set) var selection: ObjectIdentifier?
     @Published private(set) var selectedProjectID: UUID?
+    /// A lifted tab still belongs to this group until its drop commits.
+    /// Hide only its rail cell; cancelling must not reconstruct terminals.
+    @Published var liftedTabID: ObjectIdentifier?
     private var selectedTabs: [UUID: ObjectIdentifier] = [:]
 
     /// Inline rename editor state. Lives on the shared model so an AppKit window
@@ -274,6 +277,7 @@ final class TabSidebarModel: ObservableObject {
     }
 
     var visibleTabs: [Row] { rows.filter { $0.project.id == selectedProjectID } }
+    var railTabs: [Row] { visibleTabs.filter { $0.id != liftedTabID } }
 
     /// Selects a project's remembered tab, optionally returning focus to it.
     func selectProject(_ id: UUID?, stealFocus: Bool = true) {

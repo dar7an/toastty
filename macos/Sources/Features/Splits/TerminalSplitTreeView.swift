@@ -113,6 +113,7 @@ private struct TerminalSplitLeaf: View {
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
     @StateObject private var dragSession = TerminalLayoutDragSession()
+    @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
     var body: some View {
         GeometryReader { geometry in
@@ -149,6 +150,9 @@ private struct TerminalSplitLeaf: View {
     }
 
     private var previewZone: TerminalSplitDropZone? {
+        if let target = tabDragFeedback.target, target.surfaceID == surfaceView.id {
+            return target.zone
+        }
         guard !isSelfDragging, case .dropping(let zone) = dropState,
               let payload = dragSession.payload,
               TerminalLayoutCoordinator.shared.proposal(for: payload, on: surfaceView, zone: zone)?.isValid == true

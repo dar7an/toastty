@@ -143,7 +143,8 @@ struct ProjectWindowLayoutTests {
         #expect(selected.count == 1)
     }
 
-    @Test func tabTearOffUsesNativeStandaloneWindow() async throws {
+    @Test(arguments: [true, false])
+    func tabTearOffUsesNativeStandaloneWindow(selected: Bool) async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let fixture = makeWindow(app, width: 220)
@@ -169,10 +170,37 @@ struct ProjectWindowLayoutTests {
             .compactMap { $0 as? ProjectTabCellHostingView }
             .first { $0.rootView.row.window === tabWindow })
 
-        #expect(cell.detachForWindowDrag())
+        if !selected { originalGroup.selectedWindow = window }
+        let originalSelection = originalGroup.selectedWindow
+        let drag = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.width / 4, y: 14))
+        let model = originalGroup.tabSidebarModel
+        drag.lift()
+        await drainMainQueue()
+        #expect(originalGroup.windows == [window, tabWindow])
+        #expect(originalGroup.selectedWindow === window)
+        #expect(model.railTabs.map(\.window) == [window])
+        #expect(model.visibleTabs.count == 2)
+        let pointer = NSPoint(x: 500, y: 600)
+        for progress: CGFloat in [0, 0.5, 1] {
+            let frame = drag.previewFrame(at: pointer, progress: progress)
+            #expect(abs(frame.minX + frame.width / 4 - pointer.x) < 0.5)
+            #expect(abs(frame.maxY - pointer.y - 14) < 0.5)
+        }
+        drag.end(cancelled: true, at: pointer)
+        await drainMainQueue()
+        #expect(originalGroup.selectedWindow === originalSelection)
+        #expect(model.liftedTabID == nil)
+        #expect(model.railTabs.map(\.window) == [window, tabWindow])
+
+        let tearOff = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.midX, y: 14))
+        tearOff.lift()
+        let screen = try #require(NSScreen.main)
+        let edge = NSPoint(x: screen.visibleFrame.maxX - 5, y: screen.visibleFrame.minY + 5)
+        tearOff.finish(accepted: false, detach: true, at: edge)
         await drainMainQueue()
         #expect(originalGroup.windows == [window])
         #expect(tabWindow.tabGroup == nil)
+        #expect(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(tabWindow.frame))
         #expect(tab.project.id == controller.project.id)
         let detachedModel = tabWindow.standaloneTabSidebarModel
         #expect(detachedModel.rows.map(\.window) == [tabWindow])
