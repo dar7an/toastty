@@ -79,6 +79,7 @@ struct ProjectTabStripView: View {
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
+        .background { ProjectTabRailBackground() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -731,7 +732,35 @@ final class ProjectTabMenuItem: NSMenuItem {
     @objc private func invoke() { handler() }
 }
 
-/// Tinted Liquid Glass on macOS 26+, material fallback below. Never
+/// A continuous recessed track groups tabs like Finder's native tab row.
+/// Keep the material clipped to the rail and let the selected tab retain
+/// its own system glass surface inside the two-point inset.
+private struct ProjectTabRailBackground: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Group {
+            if reduceTransparency || contrast == .increased {
+                Color(nsColor: .controlBackgroundColor)
+            } else {
+                VisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+            }
+        }
+        .overlay(.primary.opacity(0.04))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().strokeBorder(
+                ProjectChrome.separatorColor,
+                lineWidth: contrast == .increased ? 1 : ProjectChrome.hairline(displayScale: displayScale))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// System Liquid Glass on macOS 26+, material fallback below. Never
 /// simulated with gradients or shadows.
 struct ProjectGlass<S: InsettableShape>: ViewModifier {
     let shape: S
@@ -748,9 +777,7 @@ struct ProjectGlass<S: InsettableShape>: ViewModifier {
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 content.glassEffect(
-                    .regular
-                        .tint(Color(nsColor: .controlBackgroundColor))
-                        .interactive(interactive),
+                    .regular.interactive(interactive),
                     in: shape)
             } else {
                 content.background(.regularMaterial, in: shape)

@@ -32,7 +32,7 @@ struct ProjectWindowLayoutTests {
         #expect(hostFrame.width > 0)
         #expect(window.titlebarSeparatorStyle == .line)
 
-        #expect(!descendants(of: host)
+        #expect(descendants(of: host)
             .compactMap { $0 as? NSVisualEffectView }
             .contains { $0.material == .titlebar })
         #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
@@ -42,13 +42,14 @@ struct ProjectWindowLayoutTests {
         let sidebar = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.sidebarToggleItemIdentifier
         })
-        let sidebarButton = try #require(sidebar.view as? NSButton)
         #expect(newTab.isBordered)
         #expect(newTab.action == #selector(TerminalController.newTab(_:)))
         #expect(newTab.target === controller)
         #expect(newTab.view == nil)
-        #expect(abs(sidebarButton.frame.width - sidebarButton.frame.height) < 0.5)
-        #expect(sidebarButton.bezelStyle == .circular)
+        #expect(sidebar.isBordered)
+        #expect(sidebar.view == nil)
+        #expect(sidebar.action == #selector(ProjectSplitViewController.toggleSidebar(_:)))
+        #expect(sidebar.target === split)
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
