@@ -606,6 +606,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     (window.contentView as? TerminalViewContainer)?
                         .projectSplitViewController?.bind(to: model, animated: false)
                 }
+                if let focusedSurface = controller.focusedSurface {
+                    window.makeFirstResponder(focusedSurface)
+                }
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is
                 // set while `-[NSWindowController showWindow:]` is called, but we're
@@ -620,6 +623,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // We don't need to dispatch this because `tabbingMode = .disallowed`
         // for HiddenTitlebarTerminalWindow.
         controller.showWindowSafely(self)
+        if let focusedSurface = controller.focusedSurface {
+            window.makeFirstResponder(focusedSurface)
+        }
 
         // Windows with `macos-titlebar-style = hidden` create new windows when the
         // new tab binding is pressed, we should cascade those windows as well.

@@ -140,13 +140,23 @@ struct ProjectActionRoutingTests {
         window.tabbingMode = .preferred
         parent.project = TerminalProject(name: "Workspace", directory: "/tmp")
         defer { tearDown(parent, window: window) }
-        let model = try #require(window.tabGroup?.tabSidebarModel)
+        let tabGroup = try #require(window.tabGroup)
+        tabGroup.selectedWindow = window
+        let model = tabGroup.tabSidebarModel
+        var selectedWithTerminalFocus = false
+        let selectionObservation = tabGroup.observe(\.selectedWindow, options: [.new]) { _, change in
+            guard let selected = change.newValue as? NSWindow,
+                  let controller = selected.windowController as? TerminalController else { return }
+            selectedWithTerminalFocus = selected.firstResponder === controller.focusedSurface
+        }
+        defer { selectionObservation.invalidate() }
         // Deliberately do not drain the main queue: this is the first frame.
         #expect(model.projects.map(\.id) == [parent.project.id])
         let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
         let tabWindow = try #require(tab.window)
         defer { tearDown(tab, window: tabWindow) }
         #expect(tabWindow.tabGroup === window.tabGroup)
+        #expect(selectedWithTerminalFocus)
         #expect(model.rows.count == 2)
         #expect(model.projects.map(\.id) == [parent.project.id])
         #expect(model.editingProjectID == nil)
