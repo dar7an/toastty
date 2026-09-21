@@ -673,7 +673,7 @@ final class TerminalLayoutCoordinator {
 
     private func refreshTabModels(for window: NSWindow?) {
         guard let window else { return }
-        window.tabGroup?.tabSidebarModel.refresh()
+        window.projectSidebarModel.refresh()
         if let controller = window.windowController as? TerminalController {
             controller.relabelTabs()
         }
@@ -692,6 +692,7 @@ final class TerminalLayoutCoordinator {
         let clampedIndex = max(0, min(targetIndex, windows.count - 1))
         guard clampedIndex != currentIndex else { return }
         let targetWindow = windows[clampedIndex]
+        let selectedWindow = tabGroup.selectedWindow
 
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
@@ -699,7 +700,7 @@ final class TerminalLayoutCoordinator {
         targetWindow.addTabbedWindowSafely(
             window,
             ordered: clampedIndex < currentIndex ? .below : .above)
-        window.makeKey()
+        (selectedWindow ?? window).makeKey()
         NSAnimationContext.endGrouping()
     }
     private func projectsMatch(

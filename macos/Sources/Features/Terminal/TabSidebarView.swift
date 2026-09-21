@@ -209,6 +209,33 @@ extension NSWindowTabGroup {
     }
 }
 
+extension NSWindow {
+    private static var standaloneTabSidebarModelKey: UInt8 = 0
+
+    /// Project chrome also exists after AppKit tears a tab out of its group.
+    var projectSidebarModel: TabSidebarModel {
+        tabGroup?.tabSidebarModel ?? standaloneTabSidebarModel
+    }
+
+    var standaloneTabSidebarModel: TabSidebarModel {
+        if let model = objc_getAssociatedObject(
+            self,
+            &Self.standaloneTabSidebarModelKey
+        ) as? TabSidebarModel {
+            return model
+        }
+
+        let model = TabSidebarModel(window: self)
+        objc_setAssociatedObject(
+            self,
+            &Self.standaloneTabSidebarModelKey,
+            model,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        model.refresh()
+        return model
+    }
+}
+
 /// Shared project and tab state for one visible window. Mutated on the main queue.
 final class TabSidebarModel: ObservableObject {
     static let minWidth: CGFloat = 160
@@ -297,7 +324,7 @@ final class TabSidebarModel: ObservableObject {
         } else {
             trimmed
         }
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             guard let controller = window.windowController as? TerminalController,
                   controller.project.id == id else { continue }
             if newOverride == nil || newOverride == controller.project.automaticName {
@@ -405,7 +432,7 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func restoreTerminalFocus() {
-        guard let window = tabGroup?.selectedWindow,
+        guard let window = selectedWindow,
               let controller = window.windowController as? TerminalController else { return }
         window.makeFirstResponder(controller.focusedSurface)
     }
@@ -416,9 +443,8 @@ final class TabSidebarModel: ObservableObject {
         _ projectID: UUID,
         _ update: (inout TerminalProject) -> Void
     ) {
-        guard let tabGroup else { return }
         var changed = false
-        for window in tabGroup.windows {
+        for window in windows {
             guard let controller = window.windowController as? TerminalController,
                   controller.project.id == projectID else { continue }
             var project = controller.project
@@ -468,12 +494,13 @@ final class TabSidebarModel: ObservableObject {
     /// Mirrors group sidebar state onto member controllers so undo and state
     /// restoration can capture it as plain data. Plain assignment cannot loop.
     private func mirrorSidebarStateToMembers() {
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             (window.windowController as? TerminalController)?.sidebarState = sidebarState
         }
     }
 
     private weak var tabGroup: NSWindowTabGroup?
+    private weak var standaloneWindow: NSWindow?
     private var groupObservations: [NSKeyValueObservation] = []
     private var titleObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
     private var pwdCancellables: [ObjectIdentifier: AnyCancellable] = [:]
@@ -481,6 +508,7 @@ final class TabSidebarModel: ObservableObject {
 
     init(tabGroup: NSWindowTabGroup) {
         self.tabGroup = tabGroup
+        self.standaloneWindow = nil
 
         // New independent windows start expanded with the saved width.
         let persistedWidth = UserDefaults.ghostty.double(forKey: Self.widthDefaultsKey)
@@ -514,6 +542,18 @@ final class TabSidebarModel: ObservableObject {
         groupObservations = [windows, selected, tabBar]
     }
 
+    init(window: NSWindow) {
+        self.tabGroup = nil
+        self.standaloneWindow = window
+
+        let persistedWidth = UserDefaults.ghostty.double(forKey: Self.widthDefaultsKey)
+        let initialWidth = persistedWidth > 0
+            ? min(Self.maxWidth, max(Self.minWidth, persistedWidth))
+            : Self.defaultWidth
+        self.sidebarState = (window.windowController as? TerminalController)?.sidebarState
+            ?? SidebarState(isVisible: true, expandedWidth: initialWidth)
+    }
+
     deinit {
         groupObservations.forEach { $0.invalidate() }
         invalidateTabObservations()
@@ -524,12 +564,13 @@ final class TabSidebarModel: ObservableObject {
     /// Selects a sidebar row and optionally returns keyboard focus to its terminal.
     func select(_ id: ObjectIdentifier?, stealFocus: Bool = true) {
         guard let id,
-              let tabGroup,
               let row = rows.first(where: { $0.id == id }),
-              tabGroup.windows.contains(row.window) else { return }
+              windows.contains(row.window) else { return }
 
-        if tabGroup.selectedWindow != row.window {
+        if let tabGroup, tabGroup.selectedWindow != row.window {
             tabGroup.selectedWindow = row.window
+        } else if tabGroup == nil {
+            row.window.makeKey()
         }
         syncSelection()
 
@@ -552,12 +593,11 @@ final class TabSidebarModel: ObservableObject {
     // MARK: Private
 
     private func rebuildRows() {
-        guard let tabGroup else { return }
         invalidateTabObservations()
 
         // Old saved windows have no project identity. Keep their restored native
         // group together as AppKit assembles it over successive runloop turns.
-        let controllers = tabGroup.windows.compactMap { $0.windowController as? TerminalController }
+        let controllers = windows.compactMap { $0.windowController as? TerminalController }
         if let legacyProject = controllers.first(where: { $0.projectNeedsMigration })?.project {
             for controller in controllers where controller.projectNeedsMigration && controller.project.id != legacyProject.id {
                 controller.project = legacyProject
@@ -582,7 +622,7 @@ final class TabSidebarModel: ObservableObject {
             }
         }
 
-        rows = tabGroup.windows.map { window in
+        rows = windows.map { window in
             observe(window: window)
             let pwd = (window.windowController as? TerminalController)?.focusedSurface?.pwd
             return Row(
@@ -664,7 +704,7 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func syncSelection() {
-        selection = tabGroup?.selectedWindow.map { ObjectIdentifier($0) }
+        selection = selectedWindow.map { ObjectIdentifier($0) }
         if let row = rows.first(where: { $0.id == selection }) {
             selectedProjectID = row.project.id
             selectedTabs[row.project.id] = row.id
@@ -680,9 +720,18 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func suppressNativeTabBar() {
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             (window as? TerminalWindow)?.hideProjectNativeTabBar()
         }
+    }
+
+    private var windows: [NSWindow] {
+        if let tabGroup { return tabGroup.windows }
+        return standaloneWindow.map { [$0] } ?? []
+    }
+
+    private var selectedWindow: NSWindow? {
+        tabGroup?.selectedWindow ?? standaloneWindow
     }
 
     private func invalidateTabObservations() {
@@ -846,9 +895,12 @@ struct ProjectSidebarListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     } else {
-                        Image(systemName: "folder")
+                        Image(systemName: "folder.fill")
                             .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(
+                                project.color.displayColor.map(Color.init(nsColor:))
+                                    ?? .accentColor)
                     }
                 }
                 .frame(width: 20, height: 20, alignment: .center)

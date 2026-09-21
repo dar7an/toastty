@@ -140,13 +140,23 @@ struct ProjectActionRoutingTests {
         window.tabbingMode = .preferred
         parent.project = TerminalProject(name: "Workspace", directory: "/tmp")
         defer { tearDown(parent, window: window) }
-        let model = try #require(window.tabGroup?.tabSidebarModel)
+        let tabGroup = try #require(window.tabGroup)
+        tabGroup.selectedWindow = window
+        let model = tabGroup.tabSidebarModel
+        var selectedWithTerminalFocus = false
+        let selectionObservation = tabGroup.observe(\.selectedWindow, options: [.new]) { _, change in
+            guard let selected = change.newValue as? NSWindow,
+                  let controller = selected.windowController as? TerminalController else { return }
+            selectedWithTerminalFocus = selected.firstResponder === controller.focusedSurface
+        }
+        defer { selectionObservation.invalidate() }
         // Deliberately do not drain the main queue: this is the first frame.
         #expect(model.projects.map(\.id) == [parent.project.id])
         let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
         let tabWindow = try #require(tab.window)
         defer { tearDown(tab, window: tabWindow) }
         #expect(tabWindow.tabGroup === window.tabGroup)
+        #expect(selectedWithTerminalFocus)
         #expect(model.rows.count == 2)
         #expect(model.projects.map(\.id) == [parent.project.id])
         #expect(model.editingProjectID == nil)
@@ -155,6 +165,38 @@ struct ProjectActionRoutingTests {
         let split = try #require((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController)
         #expect(split.model === tabWindow.tabGroup?.tabSidebarModel)
         #expect(split.model?.projects.map(\.id) == [parent.project.id])
+    }
+
+    @Test func rapidlyCreatedTabsPopulateTheSharedStrip() async throws {
+        let app = try Self.testApp()
+        let view = Ghostty.SurfaceView(try #require(app.app))
+        let parent = TerminalController(app, withSurfaceTree: .init(view: view), usesProjectSidebar: true)
+        let window = makeWindow(parent, views: [view])
+        window.tabbingMode = .preferred
+        var tabs: [TerminalController] = []
+        defer {
+            for tab in tabs.reversed() {
+                if let tabWindow = tab.window { tearDown(tab, window: tabWindow) }
+            }
+            tearDown(parent, window: window)
+        }
+        let model = try #require(window.tabGroup?.tabSidebarModel)
+        for _ in 0..<9 {
+            tabs.append(try #require(
+                TerminalController.newTab(app, from: window, registerUndo: false)))
+        }
+        #expect(model.rows.count == 10)
+
+        await drainMainQueue()
+        let selectedWindow = try #require(window.tabGroup?.selectedWindow)
+        selectedWindow.contentView?.layoutSubtreeIfNeeded()
+        let strip = try #require(selectedWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        func cells(in view: NSView) -> [ProjectTabCellHostingView] {
+            view.subviews.flatMap { ($0 as? ProjectTabCellHostingView).map { [$0] } ?? cells(in: $0) }
+        }
+        #expect(cells(in: strip).count == 10)
     }
 
     @Test func nativeTabDragPreviewsThenCommitsOneReorder() async throws {
@@ -176,16 +218,19 @@ struct ProjectActionRoutingTests {
             view.subviews.flatMap { ($0 as? ProjectTabCellHostingView).map { [$0] } ?? cells(in: $0) }
         }
         let cell = try #require(cells(in: strip).first { $0.rootView.row.window === window })
+        let targetCell = try #require(cells(in: strip).first { $0.rootView.row.window === tabWindow })
         #expect(cell.bounds.width > 0)
+        let selectedWindow = tabWindow.tabGroup?.selectedWindow
         let preview = try #require(ProjectTabReorderGesture(source: cell))
-        preview.update(translation: cell.bounds.width * 0.8)
+        let reorderTranslation = (cell.bounds.width + targetCell.bounds.width) / 2 + 1
+        preview.update(translation: reorderTranslation)
         #expect(preview.targetIndex == 1)
         #expect(window.tabGroup?.windows == [window, tabWindow])
         preview.finish(commit: false, animated: false)
         #expect(window.tabGroup?.windows == [window, tabWindow])
 
         let start = cell.convert(NSPoint(x: cell.bounds.midX, y: cell.bounds.midY), to: nil)
-        let end = NSPoint(x: start.x + cell.bounds.width * 0.8, y: start.y)
+        let end = NSPoint(x: start.x + reorderTranslation, y: start.y)
         func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
             try #require(NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: [], timestamp: 0,
@@ -197,6 +242,7 @@ struct ProjectActionRoutingTests {
         cell.mouseUp(with: try event(.leftMouseUp, end))
         await drainMainQueue()
         #expect(window.tabGroup?.windows == [tabWindow, window])
+        #expect(tabWindow.tabGroup?.selectedWindow === selectedWindow)
         #expect((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController?.model?.projects.count == 1)
     }
 

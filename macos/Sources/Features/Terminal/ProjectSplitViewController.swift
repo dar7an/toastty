@@ -120,7 +120,7 @@ final class ProjectSplitViewController: NSSplitViewController {
     private func recordSidebarMeasurement() {
         guard didApplyInitialLayout, !isSyncing, !suppressObservation,
               let model, let window = terminalController?.window,
-              window.tabGroup?.selectedWindow === window else { return }
+              (window.tabGroup?.selectedWindow ?? window) === window else { return }
         let collapsed = sidebarSplitItem.isCollapsed
         if collapsed != !model.sidebarState.isVisible {
             model.setVisible(!collapsed)
@@ -195,7 +195,9 @@ final class ProjectSplitViewController: NSSplitViewController {
                     .sink { [weak self, weak window] _ in
                         guard let self, let window,
                               self.terminalController?.window === window else { return }
-                        self.bind(to: window.tabGroup?.tabSidebarModel, animated: false)
+                        self.bind(
+                            to: window.projectSidebarModel,
+                            animated: false)
                     }
             }
     }
@@ -249,9 +251,8 @@ final class ProjectSplitViewController: NSSplitViewController {
         }
     }
 
-    /// Standard responder-chain target for the toolbar's `.toggleSidebar`
-    /// item. Funnels through the shared model so every window in the group
-    /// stays in sync (unlike the default item behavior).
+    /// Toolbar target that funnels through the shared model so every window in
+    /// the group stays in sync.
     override func toggleSidebar(_ sender: Any?) {
         terminalController?.toggleProjectSidebar(sender)
     }
@@ -260,8 +261,8 @@ final class ProjectSplitViewController: NSSplitViewController {
 /// Builds the single native toolbar row for one project window:
 /// `[traffic lights sidebar toggle] | [project tabs …][+]`.
 ///
-/// - The toggle uses the standard `.toggleSidebar` slot; its action travels
-///   the responder chain to `ProjectSplitViewController.toggleSidebar`.
+/// - The toggle is a native circular button targeting
+///   `ProjectSplitViewController.toggleSidebar`.
 /// - The separator is an `NSTrackingSeparatorToolbarItem` bound to divider 0,
 ///   so it follows the sidebar divider with constraints, never
 ///   screen-coordinate offsets.
@@ -269,13 +270,14 @@ final class ProjectSplitViewController: NSSplitViewController {
 ///   borderless item (`isBordered = false`); overflow scrolls inside the
 ///   strip while the toggle and strip keep high visibility priority at
 ///   minimum window widths.
-/// - New Tab is a separate native, bordered toolbar item so its sizing and
-///   glass bezel follow the same AppKit metrics as Toggle Sidebar.
+/// - New Tab is a separate native, bordered toolbar item so AppKit owns its
+///   sizing and glass bezel.
 ///
 /// Toolbar identity is window-specific: each window gets its own delegate
 /// instance (retained by its split controller) with autosave disabled, so
 /// configuration never propagates to unrelated windows.
 final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
+    static let sidebarToggleItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.sidebarToggle")
     static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.projectTabStrip")
     static let newTabItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.newTab")
 
@@ -299,11 +301,16 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
+        [
+            Self.sidebarToggleItemIdentifier,
+            .sidebarTrackingSeparator,
+            Self.tabStripItemIdentifier,
+            Self.newTabItemIdentifier,
+        ]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
+        toolbarAllowedItemIdentifiers(toolbar)
     }
 
     /// Creates the project toolbar items used for sidebar and tab controls.
@@ -313,8 +320,27 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .toggleSidebar:
+        case Self.sidebarToggleItemIdentifier:
+            let button = NSButton()
+            button.image = NSImage(
+                systemSymbolName: "sidebar.leading",
+                accessibilityDescription: "Toggle Sidebar")
+            button.imagePosition = .imageOnly
+            button.bezelStyle = .circular
+            button.target = splitController
+            button.action = #selector(ProjectSplitViewController.toggleSidebar(_:))
+            button.toolTip = "Toggle Sidebar"
+            button.setAccessibilityLabel("Toggle Sidebar")
+            button.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 28),
+                button.heightAnchor.constraint(equalToConstant: 28),
+            ])
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Toggle Sidebar"
+            item.paletteLabel = "Toggle Sidebar"
+            item.toolTip = "Toggle Sidebar"
+            item.view = button
             item.visibilityPriority = .high
             return item
         case .sidebarTrackingSeparator:

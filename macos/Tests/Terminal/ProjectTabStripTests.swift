@@ -4,37 +4,57 @@ import Testing
 
 struct ProjectTabStripTests {
     @Test func singleTabFillsRail() {
-        // (800 - 6) / 1 floors to the full interior width.
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 1) == 794)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 1,
+            selectedIndex: 0) == [796])
     }
 
-    @Test func fewTabsShareRailEqually() {
-        // (800 - 6) / 4 = 198.5 floors to 198 per cell.
-        let width = ProjectTabStripView.cellWidth(available: 800, count: 4)
-        #expect(width == 198)
-        // Cells plus rail padding fit without scrolling.
-        #expect(width * 4 + ProjectTabStripView.capsulePadding <= 800)
+    @Test func selectedTabReceivesNativeWidthEmphasis() {
+        let widths = ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 4,
+            selectedIndex: 1)
+        #expect(widths == [189, 229, 189, 189])
+        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding <= 800)
     }
 
-    @Test func manyTabsOverflowAtMinimumWidth() {
-        // (800 - 6) / 20 = 39.7 would be unusable, so cells clamp to the
-        // minimum and the rail scrolls instead.
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 20) == 96)
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 20) == ProjectTabStripView.minCellWidth)
+    @Test func tenTabsCompressAroundSelectedTab() {
+        let widths = ProjectTabStripView.cellWidths(
+            available: 700,
+            count: 10,
+            selectedIndex: 4)
+        #expect(widths[4] == ProjectTabStripView.selectedPreferredWidth)
+        #expect(widths.filter { $0 == 56 }.count == 9)
+        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding <= 700)
     }
 
-    @Test func fillOverflowBoundary() {
-        // (390 - 6) / 4 is exactly the 96pt minimum: still filling.
-        #expect(ProjectTabStripView.cellWidth(available: 390, count: 4) == 96)
-        // One point narrower overflows, but the width never drops below min.
-        #expect(ProjectTabStripView.cellWidth(available: 389, count: 4) == 96)
-        #expect(ProjectTabStripView.cellWidth(available: 200, count: 4) == ProjectTabStripView.minCellWidth)
+    @Test func manyTabsOverflowOnlyAfterCompactLayout() {
+        let widths = ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 20,
+            selectedIndex: 7)
+        #expect(widths[7] == ProjectTabStripView.minimumSelectedWidth)
+        #expect(widths.filter { $0 == ProjectTabStripView.compactCellWidth }.count == 19)
+        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding > 800)
     }
 
     @Test func degenerateInputsStayAtMinimum() {
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 0) == ProjectTabStripView.minCellWidth)
-        #expect(ProjectTabStripView.cellWidth(available: 0, count: 4) == ProjectTabStripView.minCellWidth)
-        #expect(ProjectTabStripView.cellWidth(available: -50, count: 2) == ProjectTabStripView.minCellWidth)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 0,
+            selectedIndex: nil).isEmpty)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 0,
+            count: 1,
+            selectedIndex: 0) == [ProjectTabStripView.minimumSelectedWidth])
+        #expect(ProjectTabStripView.cellWidths(
+            available: -50,
+            count: 2,
+            selectedIndex: nil) == [
+                ProjectTabStripView.compactCellWidth,
+                ProjectTabStripView.compactCellWidth,
+            ])
     }
 
     @Test func dropCompletesAfterLatePayloadLoad() async {
