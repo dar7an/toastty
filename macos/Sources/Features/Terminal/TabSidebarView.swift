@@ -757,7 +757,6 @@ final class TabSidebarModel: ObservableObject {
 struct ProjectSidebarListView: View {
     @ObservedObject var model: TabSidebarModel
     let controller: TerminalController
-    @State private var hoveredProjectID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -772,8 +771,9 @@ struct ProjectSidebarListView: View {
                         })
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) { projectController(project)?.closeProject() } label: {
-                                Label("Delete", systemImage: "trash")
+                                Image(systemName: "trash")
                             }
+                            .accessibilityLabel("Delete Project")
                             .help("Remove this project from Toastty")
                         }
                         .accessibilityActions {
@@ -857,20 +857,6 @@ struct ProjectSidebarListView: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Button(role: .destructive) { projectController(project)?.closeProject() } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Delete Project")
-                .accessibilityLabel("Delete Project \(projectDisplayName(project))")
-                .opacity(hoveredProjectID == project.id || model.selectedProjectID == project.id ? 1 : 0)
-                .allowsHitTesting(hoveredProjectID == project.id || model.selectedProjectID == project.id)
-                .accessibilityHidden(hoveredProjectID != project.id && model.selectedProjectID != project.id)
-                .disabled(model.editingProjectID == project.id)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 5)
@@ -878,13 +864,6 @@ struct ProjectSidebarListView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 model.clickProject(project.id)
-            }
-            .onHover { hovering in
-                if hovering {
-                    hoveredProjectID = project.id
-                } else if hoveredProjectID == project.id {
-                    hoveredProjectID = nil
-                }
             }
         }
 
