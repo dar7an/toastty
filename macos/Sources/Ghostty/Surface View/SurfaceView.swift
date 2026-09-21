@@ -33,139 +33,139 @@ extension Ghostty {
         var body: some View {
             let center = NotificationCenter.default
 
-            VStack(spacing: 0) {
+            ZStack {
+                // We use a GeometryReader to get the frame bounds so that our metal surface
+                // is up to date. See TerminalSurfaceView for why we don't use the NSView
+                // resize callback.
+                GeometryReader { geo in
+                    let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
+                    let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
+
+                    SurfaceRepresentable(view: surfaceView, size: geo.size)
+                        .focused($surfaceFocus)
+                        .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
+                        .focusedValue(\.ghosttySurfaceView, surfaceView)
+                        .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)
+                        .onReceive(pubBecomeKey) { notification in
+                            guard let window = notification.object as? NSWindow else { return }
+                            guard let surfaceWindow = surfaceView.window else { return }
+                            windowFocus = surfaceWindow == window
+                        }
+                        .onReceive(pubResign) { notification in
+                            guard let window = notification.object as? NSWindow else { return }
+                            guard let surfaceWindow = surfaceView.window else { return }
+                            if surfaceWindow == window {
+                                windowFocus = false
+                            }
+                        }
+
+                    // If our geo size changed then we show the resize overlay as configured.
+                    if let surfaceSize = surfaceView.surfaceSize {
+                        SurfaceResizeOverlay(
+                            geoSize: geo.size,
+                            size: surfaceSize,
+                            overlay: ghostty.config.resizeOverlay,
+                            position: ghostty.config.resizeOverlayPosition,
+                            duration: ghostty.config.resizeOverlayDuration,
+                            focusInstant: surfaceView.focusInstant)
+
+                    }
+                }
+                .ghosttySurfaceView(surfaceView)
+
+                // Progress report
+                if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
+                    VStack(spacing: 0) {
+                        SurfaceProgressBar(report: progressReport)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+
+                // Readonly indicator badge
+                if surfaceView.readonly {
+                    ReadonlyBadge {
+                        surfaceView.toggleReadonly(nil)
+                    }
+                }
+
+                // Show key state indicator for active key tables and/or pending key sequences
+                KeyStateIndicator(
+                    keyTables: surfaceView.keyTables,
+                    keySequence: surfaceView.keySequence
+                )
+                .zIndex(1)
+
+                VStack(spacing: 0) {
+                    // If we have a URL from hovering a link, we show that.
+                    if let url = surfaceView.hoverUrl {
+                        URLHoverBanner(url: url)
+                    }
+
+                    // Show a bar to indicate a child process has exited.
+                    if let msg = surfaceView.childExitedMessage {
+                        ChildExitedMessageBar(msg: msg)
+                            .font(.system(size: min(surfaceView.cellSize.height * 0.8, 30)))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
+                // If we have secure input enabled and we're the focused surface and window
+                // then we want to show the secure input overlay.
+                if ghostty.config.secureInputIndication &&
+                    secureInput.enabled &&
+                    surfaceFocus &&
+                    windowFocus {
+                    SecureInputOverlay()
+                }
+
+                // Search overlay
+                if let searchState = surfaceView.searchState {
+                    SurfaceSearchOverlay(
+                        surfaceView: surfaceView,
+                        searchState: searchState,
+                        onClose: {
+                            surfaceView.endSearch()
+                        }
+                    )
+                }
+
+                // Show bell border if enabled
+                if ghostty.config.bellFeatures.contains(.border) {
+                    BellBorderOverlay(bell: surfaceView.bell)
+                }
+
+                // Show a highlight effect when this surface needs attention
+                HighlightOverlay(highlighted: surfaceView.highlighted)
+
+                // If our surface is not healthy, then we render an error view over it.
+                if !surfaceView.healthy {
+                    Rectangle().fill(ghostty.config.backgroundColor)
+                    SurfaceRendererUnhealthyView()
+                } else if surfaceView.error != nil {
+                    Rectangle().fill(ghostty.config.backgroundColor)
+                    SurfaceErrorView()
+                }
+
+                // If we're part of a split view and don't have focus, we put a semi-transparent
+                // rectangle above our view to make it look unfocused. We include the last
+                // focused surface so this still works while SwiftUI focus is temporarily nil.
+                if isSplit && !isFocusedSurface {
+                    let overlayOpacity = ghostty.config.unfocusedSplitOpacity
+                    if overlayOpacity > 0 {
+                        Rectangle()
+                            .fill(ghostty.config.unfocusedSplitFill)
+                            .allowsHitTesting(false)
+                            .opacity(overlayOpacity)
+                    }
+                }
+
+            }
+            .overlay(alignment: .top) {
                 SurfaceGrabHandle(surfaceView: surfaceView, isSplit: isSplit,
                                   dragHandle: ghostty.config.dragHandle)
-                ZStack {
-                    // We use a GeometryReader to get the frame bounds so that our metal surface
-                    // is up to date. See TerminalSurfaceView for why we don't use the NSView
-                    // resize callback.
-                    GeometryReader { geo in
-                        let pubBecomeKey = center.publisher(for: NSWindow.didBecomeKeyNotification)
-                        let pubResign = center.publisher(for: NSWindow.didResignKeyNotification)
-
-                        SurfaceRepresentable(view: surfaceView, size: geo.size)
-                            .focused($surfaceFocus)
-                            .focusedValue(\.ghosttySurfacePwd, surfaceView.pwd)
-                            .focusedValue(\.ghosttySurfaceView, surfaceView)
-                            .focusedValue(\.ghosttySurfaceCellSize, surfaceView.cellSize)
-                            .onReceive(pubBecomeKey) { notification in
-                                guard let window = notification.object as? NSWindow else { return }
-                                guard let surfaceWindow = surfaceView.window else { return }
-                                windowFocus = surfaceWindow == window
-                            }
-                            .onReceive(pubResign) { notification in
-                                guard let window = notification.object as? NSWindow else { return }
-                                guard let surfaceWindow = surfaceView.window else { return }
-                                if surfaceWindow == window {
-                                    windowFocus = false
-                                }
-                            }
-
-                        // If our geo size changed then we show the resize overlay as configured.
-                        if let surfaceSize = surfaceView.surfaceSize {
-                            SurfaceResizeOverlay(
-                                geoSize: geo.size,
-                                size: surfaceSize,
-                                overlay: ghostty.config.resizeOverlay,
-                                position: ghostty.config.resizeOverlayPosition,
-                                duration: ghostty.config.resizeOverlayDuration,
-                                focusInstant: surfaceView.focusInstant)
-
-                        }
-                    }
-                    .ghosttySurfaceView(surfaceView)
-
-                    // Progress report
-                    if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
-                        VStack(spacing: 0) {
-                            SurfaceProgressBar(report: progressReport)
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                    }
-
-                    // Readonly indicator badge
-                    if surfaceView.readonly {
-                        ReadonlyBadge {
-                            surfaceView.toggleReadonly(nil)
-                        }
-                    }
-
-                    // Show key state indicator for active key tables and/or pending key sequences
-                    KeyStateIndicator(
-                        keyTables: surfaceView.keyTables,
-                        keySequence: surfaceView.keySequence
-                    )
-                    .zIndex(1)
-
-                    VStack(spacing: 0) {
-                        // If we have a URL from hovering a link, we show that.
-                        if let url = surfaceView.hoverUrl {
-                            URLHoverBanner(url: url)
-                        }
-
-                        // Show a bar to indicate a child process has exited.
-                        if let msg = surfaceView.childExitedMessage {
-                            ChildExitedMessageBar(msg: msg)
-                                .font(.system(size: min(surfaceView.cellSize.height * 0.8, 30)))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-
-                    // If we have secure input enabled and we're the focused surface and window
-                    // then we want to show the secure input overlay.
-                    if ghostty.config.secureInputIndication &&
-                        secureInput.enabled &&
-                        surfaceFocus &&
-                        windowFocus {
-                        SecureInputOverlay()
-                    }
-
-                    // Search overlay
-                    if let searchState = surfaceView.searchState {
-                        SurfaceSearchOverlay(
-                            surfaceView: surfaceView,
-                            searchState: searchState,
-                            onClose: {
-                                surfaceView.endSearch()
-                            }
-                        )
-                    }
-
-                    // Show bell border if enabled
-                    if ghostty.config.bellFeatures.contains(.border) {
-                        BellBorderOverlay(bell: surfaceView.bell)
-                    }
-
-                    // Show a highlight effect when this surface needs attention
-                    HighlightOverlay(highlighted: surfaceView.highlighted)
-
-                    // If our surface is not healthy, then we render an error view over it.
-                    if !surfaceView.healthy {
-                        Rectangle().fill(ghostty.config.backgroundColor)
-                        SurfaceRendererUnhealthyView()
-                    } else if surfaceView.error != nil {
-                        Rectangle().fill(ghostty.config.backgroundColor)
-                        SurfaceErrorView()
-                    }
-
-                    // If we're part of a split view and don't have focus, we put a semi-transparent
-                    // rectangle above our view to make it look unfocused. We include the last
-                    // focused surface so this still works while SwiftUI focus is temporarily nil.
-                    if isSplit && !isFocusedSurface {
-                        let overlayOpacity = ghostty.config.unfocusedSplitOpacity
-                        if overlayOpacity > 0 {
-                            Rectangle()
-                                .fill(ghostty.config.unfocusedSplitFill)
-                                .allowsHitTesting(false)
-                                .opacity(overlayOpacity)
-                        }
-                    }
-
-                }
             }
         }
     }

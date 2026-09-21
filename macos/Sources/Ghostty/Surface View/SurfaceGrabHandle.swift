@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension Ghostty {
-    /// A dedicated pane header keeps the drag target clear of terminal text.
+    /// A floating pane grip revealed by hovering its drag target.
     struct SurfaceGrabHandle: View {
         let surfaceView: SurfaceView
         let isSplit: Bool
@@ -19,6 +19,10 @@ extension Ghostty {
             }
         }
 
+        private var showsGrip: Bool {
+            dragHandle == .always || isHovering || isDragging
+        }
+
         var body: some View {
             if isVisible {
                 ZStack {
@@ -33,13 +37,13 @@ extension Ghostty {
 
                     Capsule()
                         .fill(Color.primary.opacity(
-                            contrast == .increased ? 0.85 : (isHovering || isDragging ? 0.65 : 0.35)))
+                            contrast == .increased ? 0.85 : 0.65))
                         .frame(width: 32, height: 3)
+                        .shadow(color: .black.opacity(0.18), radius: 1, y: 1)
+                        .opacity(showsGrip ? 1 : 0)
                         .allowsHitTesting(false)
                 }
-                .frame(maxWidth: .infinity)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .motionAnimation(.easeOut(duration: 0.12), value: isHovering)
+                .motionAnimation(.easeOut(duration: 0.12), value: showsGrip)
             }
         }
     }
