@@ -212,6 +212,11 @@ extension NSWindowTabGroup {
 extension NSWindow {
     private static var standaloneTabSidebarModelKey: UInt8 = 0
 
+    /// Project chrome also exists after AppKit tears a tab out of its group.
+    var projectSidebarModel: TabSidebarModel {
+        tabGroup?.tabSidebarModel ?? standaloneTabSidebarModel
+    }
+
     var standaloneTabSidebarModel: TabSidebarModel {
         if let model = objc_getAssociatedObject(
             self,

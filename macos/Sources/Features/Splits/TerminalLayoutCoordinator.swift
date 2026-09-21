@@ -673,7 +673,7 @@ final class TerminalLayoutCoordinator {
 
     private func refreshTabModels(for window: NSWindow?) {
         guard let window else { return }
-        window.tabGroup?.tabSidebarModel.refresh()
+        window.projectSidebarModel.refresh()
         if let controller = window.windowController as? TerminalController {
             controller.relabelTabs()
         }

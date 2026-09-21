@@ -175,22 +175,56 @@ struct ProjectWindowLayoutTests {
         #expect(tab.project.id == controller.project.id)
         let detachedModel = tabWindow.standaloneTabSidebarModel
         #expect(detachedModel.rows.map(\.window) == [tabWindow])
-        #expect((tabWindow.contentView as? TerminalViewContainer)?
-            .projectSplitViewController?.model === detachedModel)
+        let detachedSplit = try #require((tabWindow.contentView as? TerminalViewContainer)?
+            .projectSplitViewController)
+        #expect(detachedSplit.model === detachedModel)
+
+        // Detached windows have no native tab group, but must retain the
+        // same sidebar actions, saved geometry, and inline project rename.
+        detachedSplit.splitView.setPosition(280, ofDividerAt: 0)
+        await drainMainQueue()
+        #expect(abs(detachedModel.width - 280) < 1)
+        #expect(abs((tab.sidebarState?.expandedWidth ?? 0) - 280) < 1)
+        tab.toggleProjectSidebar(nil)
+        #expect(!detachedModel.sidebarState.isVisible)
+        let toggle = NSMenuItem(title: "", action: #selector(TerminalController.toggleProjectSidebar(_:)),
+                                keyEquivalent: "")
+        #expect(tab.validateMenuItem(toggle))
+        #expect(toggle.title == "Show Sidebar")
+        tab.toggleProjectSidebar(nil)
+        #expect(detachedModel.sidebarState.isVisible)
+        #expect(tab.validateMenuItem(toggle))
+        #expect(toggle.title == "Hide Sidebar")
+        tab.promptProjectName(rename: true)
+        #expect(detachedModel.editingProjectID == tab.project.id)
+        detachedModel.editingDraft = "Detached Project"
+        detachedModel.commitRename()
+        #expect(detachedModel.projects.first?.name == "Detached Project")
     }
 
     @Test func nativeReorderCrossesMidpointsAndMovesOnlyInterveningTabs() {
         #expect(ProjectTabCellHostingView.tearOffDistance == 28)
         let widths: [CGFloat] = [100, 160, 80, 120]
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 119, widths: widths) == 1)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 121, widths: widths) == 2)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -129, widths: widths) == 1)
-        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -131, widths: widths) == 0)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 39, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 41, widths: widths) == 2)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -49, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -51, widths: widths) == 0)
         #expect(ProjectTabReorderGesture.destination(source: 1, translation: 900, widths: widths) == 3)
         #expect(ProjectTabReorderGesture.destination(source: 1, translation: .infinity, widths: widths) == 1)
         #expect(ProjectTabReorderGesture.neighborOffset(index: 2, source: 1, destination: 3, width: 160) == -160)
         #expect(ProjectTabReorderGesture.neighborOffset(index: 0, source: 1, destination: 3, width: 100) == 0)
         #expect(ProjectTabReorderGesture.neighborOffset(index: 1, source: 3, destination: 0, width: 100) == 100)
+    }
+
+    @Test func widerSelectedTabCanReorderWithinItsClampedTravel() {
+        let widths: [CGFloat] = [54, 190, 54, 54]
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 26, widths: widths) == 1)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 28, widths: widths) == 2)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 80, widths: widths) == 2)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 82, widths: widths) == 3)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: -54, widths: widths) == 0)
+        #expect(ProjectTabReorderGesture.destination(source: 1, translation: 108, widths: widths) == 3)
+        #expect(ProjectTabReorderGesture.destination(source: 0, translation: 54, widths: [54, 54]) == 1)
     }
 
     @Test func tabContextMenuUsesCompactAccessiblePalette() throws {

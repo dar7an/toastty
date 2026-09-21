@@ -1546,7 +1546,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard project.directory == nil, project.nameOverride == nil else { return }
         guard let pwd = focusedSurface?.pwd, Self.isPlausibleProjectDirectory(pwd) else { return }
         project.directory = pwd
-        window?.tabGroup?.tabSidebarModel.refresh()
+        window?.projectSidebarModel.refresh()
     }
 
     /// Create a new project seeded from the active terminal's directory.
@@ -1593,9 +1593,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// call working for other workstreams.
     func promptProjectName(rename: Bool = false) {
         guard let window else { return }
-        if rename, usesProjectSidebar, window.tabGroup != nil {
-            window.tabGroup?.tabSidebarModel.selectProject(project.id)
-            window.tabGroup?.tabSidebarModel.beginRename(projectID: project.id)
+        if rename, usesProjectSidebar {
+            window.projectSidebarModel.selectProject(project.id)
+            window.projectSidebarModel.beginRename(projectID: project.id)
             return
         }
         if !rename {
@@ -1619,7 +1619,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 guard let controller = tab.windowController as? TerminalController else { continue }
                 controller.project.nameOverride = (name.isEmpty || name == controller.project.automaticName) ? nil : name
             }
-            window.tabGroup?.tabSidebarModel.refresh()
+            window.projectSidebarModel.refresh()
         }
     }
 
@@ -1654,8 +1654,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// group follows; the split controller observes the model and animates
     /// (skipped under Reduce Motion). Also wired to View > Show/Hide Sidebar.
     @IBAction func toggleProjectSidebar(_ sender: Any?) {
-        guard usesProjectSidebar, let window, let tabGroup = window.tabGroup else { return }
-        let model = tabGroup.tabSidebarModel
+        guard usesProjectSidebar, let window else { return }
+        let model = window.projectSidebarModel
         model.setVisible(!model.sidebarState.isVisible)
     }
 
@@ -2110,7 +2110,7 @@ extension TerminalController {
 
         case #selector(toggleProjectSidebar):
             guard usesProjectSidebar else { return false }
-            if let visible = window?.tabGroup?.tabSidebarModel.sidebarState.isVisible {
+            if let visible = window?.projectSidebarModel.sidebarState.isVisible {
                 item.title = visible ? "Hide Sidebar" : "Show Sidebar"
             } else {
                 item.title = "Hide Sidebar"
@@ -2194,9 +2194,7 @@ extension TerminalController {
             ?? (ghostty.config.macosTabsSidebar && ghostty.config.macosTitlebarStyle != .hidden)
         guard enabled else { return 0 }
 
-        // Accessing `window.tabGroup` materializes the window's tab group,
-        // which the sidebar requires anyway when it is enabled.
-        guard let model = window?.tabGroup?.tabSidebarModel else {
+        guard let model = window?.projectSidebarModel else {
             return TabSidebarModel.defaultWidth
         }
         guard model.sidebarState.isVisible else { return 0 }

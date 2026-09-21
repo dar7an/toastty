@@ -120,7 +120,7 @@ final class ProjectSplitViewController: NSSplitViewController {
     private func recordSidebarMeasurement() {
         guard didApplyInitialLayout, !isSyncing, !suppressObservation,
               let model, let window = terminalController?.window,
-              window.tabGroup?.selectedWindow === window else { return }
+              (window.tabGroup?.selectedWindow ?? window) === window else { return }
         let collapsed = sidebarSplitItem.isCollapsed
         if collapsed != !model.sidebarState.isVisible {
             model.setVisible(!collapsed)
@@ -196,7 +196,7 @@ final class ProjectSplitViewController: NSSplitViewController {
                         guard let self, let window,
                               self.terminalController?.window === window else { return }
                         self.bind(
-                            to: window.tabGroup?.tabSidebarModel ?? window.standaloneTabSidebarModel,
+                            to: window.projectSidebarModel,
                             animated: false)
                     }
             }

@@ -69,18 +69,21 @@ final class ProjectTabReorderGesture {
               translation.isFinite else { return source }
         var destination = source
         if translation > 0 {
-            var threshold: CGFloat = 0
+            var distance: CGFloat = 0
             for index in (source + 1)..<widths.count {
-                threshold += (widths[index - 1] + widths[index]) / 2
-                if translation < threshold { break }
+                // Swap halfway between the source's current and next slot.
+                // Including the source width can put the threshold beyond
+                // its clamped travel when the selected tab is wider.
+                if translation < distance + widths[index] / 2 { break }
                 destination = index
+                distance += widths[index]
             }
         } else if translation < 0, source > 0 {
-            var threshold: CGFloat = 0
+            var distance: CGFloat = 0
             for index in stride(from: source - 1, through: 0, by: -1) {
-                threshold -= (widths[index + 1] + widths[index]) / 2
-                if translation > threshold { break }
+                if -translation < distance + widths[index] / 2 { break }
                 destination = index
+                distance += widths[index]
             }
         }
         return destination

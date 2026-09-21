@@ -572,7 +572,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     }
 
     private static func syncDetachedChrome(for window: NSWindow) {
-        let model = window.tabGroup?.tabSidebarModel ?? window.standaloneTabSidebarModel
+        let model = window.projectSidebarModel
         model.refresh()
         (window.contentView as? TerminalViewContainer)?
             .projectSplitViewController?.bind(to: model, animated: false)
