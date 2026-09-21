@@ -100,11 +100,6 @@ class TerminalViewContainer: NSView {
     /// replaced by the split view.
     private var projectContentView: NSView?
 
-    /// One continuous navigation surface behind the sidebar controls and tab
-    /// rail. Keep it outside the terminal hosting view so translucent terminal
-    /// themes retain their own background below the toolbar.
-    private var projectToolbarBackground: NSVisualEffectView?
-
     /// Embeds the project split controller, replacing the directly-hosted
     /// terminal view. Call before assigning the container as
     /// `window.contentView`.
@@ -121,36 +116,33 @@ class TerminalViewContainer: NSView {
             splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
             splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        // The toolbar and sidebar are adjacent native materials, not one
+        // uniformly tinted surface. Follow the content column so the sidebar
+        // keeps its own material through the traffic-light area.
         let background = ProjectToolbarBackground()
-        background.material = .sidebar
+        background.material = .titlebar
         background.blendingMode = .behindWindow
         background.setAccessibilityHidden(true)
+        background.translatesAutoresizingMaskIntoConstraints = false
         addSubview(background)
-        projectToolbarBackground = background
+        NSLayoutConstraint.activate([
+            background.leadingAnchor.constraint(equalTo: controller.contentViewForSizing.leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor),
+            background.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+        ])
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateGlassEffectIfNeeded()
         updateGlassEffectTopInsetIfNeeded()
-        updateProjectToolbarBackground()
     }
 
     override func layout() {
         super.layout()
         projectSplitViewController?.applyInitialLayout()
         updateGlassEffectTopInsetIfNeeded()
-        updateProjectToolbarBackground()
-    }
-
-    private func updateProjectToolbarBackground() {
-        guard let background = projectToolbarBackground, let window else { return }
-        let contentTop = convert(window.contentLayoutRect, from: nil).maxY
-        background.frame = NSRect(
-            x: bounds.minX,
-            y: max(bounds.minY, contentTop),
-            width: bounds.width,
-            height: max(0, bounds.maxY - contentTop))
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {

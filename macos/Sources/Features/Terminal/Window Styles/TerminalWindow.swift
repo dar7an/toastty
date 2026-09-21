@@ -268,7 +268,7 @@ class TerminalWindow: NSWindow {
     func configureProjectChrome(splitController: ProjectSplitViewController? = nil) {
         styleMask.insert(.fullSizeContentView)
         titleVisibility = .hidden
-        // The content container extends the sidebar material behind this toolbar.
+        // The content container supplies separate sidebar and toolbar materials.
         titlebarAppearsTransparent = true
         let toolbar = NSToolbar(identifier: "ProjectToolbar.\(terminalController?.projectTabID.uuidString ?? UUID().uuidString)")
         toolbar.delegate = splitController?.toolbarDelegate

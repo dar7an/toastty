@@ -131,13 +131,25 @@ struct ProjectWindowLayoutTests {
         // The navigation material follows native toolbar geometry without
         // covering terminal content or intercepting window-drag events.
         let toolbarBackground = try #require(container.subviews.compactMap { $0 as? NSVisualEffectView }.first)
-        #expect(toolbarBackground.material == .sidebar)
+        #expect(toolbarBackground.material == .titlebar)
         #expect(toolbarBackground.blendingMode == .behindWindow)
-        #expect(abs(toolbarBackground.frame.width - container.bounds.width) < 1)
+        let terminalFrame = split.contentViewForSizing.convert(split.contentViewForSizing.bounds, to: container)
+        #expect(abs(toolbarBackground.frame.minX - terminalFrame.minX) < 1)
+        #expect(abs(toolbarBackground.frame.maxX - container.bounds.maxX) < 1)
         #expect(abs(toolbarBackground.frame.maxY - container.bounds.maxY) < 1)
         #expect(abs(toolbarBackground.frame.height - TerminalController.projectToolbarInset(window)) < 1)
         #expect(toolbarBackground.hitTest(NSPoint(x: toolbarBackground.frame.midX,
                                                  y: toolbarBackground.frame.midY)) == nil)
+
+        // Collapsing the sidebar must extend the toolbar material all the
+        // way left; expanding restores the boundary between the two shades.
+        for isVisible in [false, true] {
+            split.applySidebarState(SidebarState(isVisible: isVisible, expandedWidth: 260), animated: false)
+            container.layoutSubtreeIfNeeded()
+            await drainMainQueue()
+            #expect(abs(toolbarBackground.frame.minX - (isVisible ? 260 : 0)) < 1)
+            #expect(abs(toolbarBackground.frame.maxX - container.bounds.maxX) < 1)
+        }
     }
 
     @Test func nativeDividerResizeUpdatesSharedState() async throws {
