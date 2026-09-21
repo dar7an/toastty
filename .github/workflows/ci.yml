@@ -31,6 +31,22 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Build and run unit tests
         run: scripts/test.sh
+      - name: Export UI review attachments
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/toastty-ui-review"
+          find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Logs/Test/*.xcresult' -type d -prune -print0 |
+          while IFS= read -r -d '' result; do
+            xcrun xcresulttool export attachments --path "$result" \
+              --output-path "$RUNNER_TEMP/toastty-ui-review/$(basename "$result" .xcresult)"
+          done
+      - name: Preserve UI review images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-ui-review
+          path: ${{ runner.temp }}/toastty-ui-review
+          if-no-files-found: warn
       - name: Preserve test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
