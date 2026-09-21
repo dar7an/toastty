@@ -195,7 +195,9 @@ final class ProjectSplitViewController: NSSplitViewController {
                     .sink { [weak self, weak window] _ in
                         guard let self, let window,
                               self.terminalController?.window === window else { return }
-                        self.bind(to: window.tabGroup?.tabSidebarModel, animated: false)
+                        self.bind(
+                            to: window.tabGroup?.tabSidebarModel ?? window.standaloneTabSidebarModel,
+                            animated: false)
                     }
             }
     }

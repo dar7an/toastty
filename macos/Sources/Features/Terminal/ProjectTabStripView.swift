@@ -204,7 +204,7 @@ struct ProjectTabCell: View {
                 .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Drag to reorder this tab or drop it into another terminal split.")
+            .accessibilityHint("Drag to reorder this tab or pull it into a new window.")
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -469,11 +469,12 @@ private struct ProjectTabCellHost: NSViewRepresentable {
 }
 
 final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
+    static let tearOffDistance: CGFloat = 28
+
     private var hoverTrackingArea: NSTrackingArea?
     private var tabIsHovered = false
     private var mouseDownPoint: NSPoint?
     private var pressedClose = false
-    private let tabDragSource = ProjectTabDragSource()
     private var reorderGesture: ProjectTabReorderGesture?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -525,9 +526,9 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
               let controller = rootView.row.window.windowController as? TerminalController else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
-        // Stay attached to the rail for horizontal reordering, like Finder.
-        // Crossing out of the rail deliberately starts a pane-transfer drag.
-        if abs(point.y - origin.y) <= 28 {
+        // Stay attached to the rail for horizontal reordering. Pulling beyond
+        // the tab row hands the same pointer gesture to the detached window.
+        if abs(point.y - origin.y) <= Self.tearOffDistance {
             if reorderGesture == nil {
                 reorderGesture = ProjectTabReorderGesture(source: self)
                 reorderGesture?.onCancel = { [weak self] in
@@ -549,20 +550,32 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         reorderGesture?.finish(commit: false, animated: false)
         reorderGesture = nil
         mouseDownPoint = nil
-        let pasteboard = NSPasteboardItem()
-        guard let data = try? JSONEncoder().encode(TerminalLayoutDragPayload.tab(controller.projectTabID)) else { return }
-        pasteboard.setData(data, forType: .toasttyTerminalLayoutID)
-        let item = NSDraggingItem(pasteboardWriter: pasteboard)
         setHovered(false)
-        layoutSubtreeIfNeeded()
-        let image = NSImage(size: bounds.size)
-        if let bitmap = bitmapImageRepForCachingDisplay(in: bounds) {
-            cacheDisplay(in: bounds, to: bitmap)
-            image.addRepresentation(bitmap)
+        detachForWindowDrag()
+        controller.window?.performDrag(with: event)
+    }
+
+    @discardableResult
+    func detachForWindowDrag() -> Bool {
+        let window = rootView.row.window
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return false }
+        tabGroup.selectedWindow = window
+        window.moveTabToNewWindow(nil)
+        tabGroup.tabSidebarModel.refresh()
+        Self.syncDetachedChrome(for: window)
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            Self.syncDetachedChrome(for: window)
         }
-        item.setDraggingFrame(bounds.offsetBy(dx: point.x - origin.x, dy: point.y - origin.y), contents: image)
-        tabDragSource.onEnd = { [weak self] in self?.setHovered(false) }
-        beginDraggingSession(with: [item], event: event, source: tabDragSource)
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    private static func syncDetachedChrome(for window: NSWindow) {
+        let model = window.tabGroup?.tabSidebarModel ?? window.standaloneTabSidebarModel
+        model.refresh()
+        (window.contentView as? TerminalViewContainer)?
+            .projectSplitViewController?.bind(to: model, animated: false)
     }
 
     private var closeButtonRect: NSRect {
@@ -608,20 +621,6 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = menu(for: event) else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-}
-
-/// NSHostingView has its own sealed SwiftUI drag-source implementation.
-/// Keep our native session's delegate separate from that implementation.
-private final class ProjectTabDragSource: NSObject, NSDraggingSource {
-    var onEnd: (() -> Void)?
-
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .withinApplication ? .move : []
-    }
-
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        onEnd?()
     }
 }
 

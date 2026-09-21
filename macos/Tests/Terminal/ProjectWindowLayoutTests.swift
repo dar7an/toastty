@@ -142,7 +142,45 @@ struct ProjectWindowLayoutTests {
         #expect(selected.count == 1)
     }
 
+    @Test func tabTearOffUsesNativeStandaloneWindow() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let controller = fixture.controller
+        let window = fixture.window
+        fixture.split.beginObservingTabGroup()
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer {
+            tab.window = nil
+            tabWindow.close()
+            controller.window = nil
+            window.close()
+        }
+        tabWindow.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+        let originalGroup = try #require(tabWindow.tabGroup)
+        let strip = try #require(tabWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        let cell = try #require(descendants(of: strip)
+            .compactMap { $0 as? ProjectTabCellHostingView }
+            .first { $0.rootView.row.window === tabWindow })
+
+        #expect(cell.detachForWindowDrag())
+        await drainMainQueue()
+        #expect(originalGroup.windows == [window])
+        #expect(tabWindow.tabGroup == nil)
+        #expect(tab.project.id == controller.project.id)
+        let detachedModel = tabWindow.standaloneTabSidebarModel
+        #expect(detachedModel.rows.map(\.window) == [tabWindow])
+        #expect((tabWindow.contentView as? TerminalViewContainer)?
+            .projectSplitViewController?.model === detachedModel)
+    }
+
     @Test func nativeReorderCrossesMidpointsAndMovesOnlyInterveningTabs() {
+        #expect(ProjectTabCellHostingView.tearOffDistance == 28)
         let widths: [CGFloat] = [100, 160, 80, 120]
         #expect(ProjectTabReorderGesture.destination(source: 1, translation: 119, widths: widths) == 1)
         #expect(ProjectTabReorderGesture.destination(source: 1, translation: 121, widths: widths) == 2)
