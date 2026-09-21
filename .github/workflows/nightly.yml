@@ -47,6 +47,11 @@ jobs:
         run: |
           zig build -Demit-macos-app=false -Doptimize=ReleaseFast
           macos/build.nu --configuration Release
+          # An ad-hoc host cannot validate Sparkle's Developer ID team. Apply
+          # the existing local-preview entitlements only to this CI artifact.
+          codesign --force --sign - --options runtime --entitlements macos/GhosttyReleaseLocal.entitlements \
+            macos/build/Release/Toastty.app
+          macos/build/Release/Toastty.app/Contents/MacOS/toastty --version
       - name: Verify signature and package dmg
         run: |
           set -euo pipefail

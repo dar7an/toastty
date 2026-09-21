@@ -25,6 +25,9 @@ newer nightly. Release notes include the source commit, checksum, architecture,
 and minimum macOS version.
 
 Nightlies use the `Release` configuration and `com.dar7an.toastty` identity.
+CI applies the existing local-preview entitlements to the ad-hoc artifact so
+it can load its bundled framework without a shared Developer ID team, then
+checks that the executable starts. The signed-release configuration is unchanged.
 `ReleaseLocal` remains an isolated development build (`com.dar7an.toastty.local`).
 A nightly installation would replace an existing Toastty app; preserve pinned
 installations during development. Nightlies have no Developer ID signature or
