@@ -127,6 +127,17 @@ struct ProjectWindowLayoutTests {
         await drainMainQueue()
         #expect(TerminalController.projectToolbarInset(window) > 0)
         #expect(abs(window.contentLayoutRect.height - 480) < 1)
+
+        // The navigation material follows native toolbar geometry without
+        // covering terminal content or intercepting window-drag events.
+        let toolbarBackground = try #require(container.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+        #expect(toolbarBackground.material == .sidebar)
+        #expect(toolbarBackground.blendingMode == .behindWindow)
+        #expect(abs(toolbarBackground.frame.width - container.bounds.width) < 1)
+        #expect(abs(toolbarBackground.frame.maxY - container.bounds.maxY) < 1)
+        #expect(abs(toolbarBackground.frame.height - TerminalController.projectToolbarInset(window)) < 1)
+        #expect(toolbarBackground.hitTest(NSPoint(x: toolbarBackground.frame.midX,
+                                                 y: toolbarBackground.frame.midY)) == nil)
     }
 
     @Test func nativeDividerResizeUpdatesSharedState() async throws {

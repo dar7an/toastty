@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Decorative only: toolbar controls and window dragging keep their normal hit testing.
+private final class ProjectToolbarBackground: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
@@ -95,6 +100,11 @@ class TerminalViewContainer: NSView {
     /// replaced by the split view.
     private var projectContentView: NSView?
 
+    /// One continuous navigation surface behind the sidebar controls and tab
+    /// rail. Keep it outside the terminal hosting view so translucent terminal
+    /// themes retain their own background below the toolbar.
+    private var projectToolbarBackground: NSVisualEffectView?
+
     /// Embeds the project split controller, replacing the directly-hosted
     /// terminal view. Call before assigning the container as
     /// `window.contentView`.
@@ -111,18 +121,36 @@ class TerminalViewContainer: NSView {
             splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
             splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        let background = ProjectToolbarBackground()
+        background.material = .sidebar
+        background.blendingMode = .behindWindow
+        background.setAccessibilityHidden(true)
+        addSubview(background)
+        projectToolbarBackground = background
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateGlassEffectIfNeeded()
         updateGlassEffectTopInsetIfNeeded()
+        updateProjectToolbarBackground()
     }
 
     override func layout() {
         super.layout()
         projectSplitViewController?.applyInitialLayout()
         updateGlassEffectTopInsetIfNeeded()
+        updateProjectToolbarBackground()
+    }
+
+    private func updateProjectToolbarBackground() {
+        guard let background = projectToolbarBackground, let window else { return }
+        let contentTop = convert(window.contentLayoutRect, from: nil).maxY
+        background.frame = NSRect(
+            x: bounds.minX,
+            y: max(bounds.minY, contentTop),
+            width: bounds.width,
+            height: max(0, bounds.maxY - contentTop))
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
