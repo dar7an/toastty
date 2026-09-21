@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/dar7an/toastty/releases/tag/nightly">Download</a>
+  ·
   <a href="https://github.com/dar7an/toastty/issues">Issues</a>
   ·
   <a href="docs/usage.md">Usage</a>
@@ -52,9 +54,12 @@ The workspace layout stays clear as your projects and tabs grow.
 
 ## Project status
 
-Toastty is a development preview. It is currently built from source, and its
-behavior and configuration may change. A signed and notarized public release,
-automatic updates, and a stable release channel are not configured yet. See
+Toastty is a development preview, and its behavior and configuration may
+change. CI publishes a preview `Toastty.dmg` from successful commits on `main`
+as a [nightly prerelease](https://github.com/dar7an/toastty/releases/tag/nightly).
+It is ad-hoc signed, without Developer ID signing or notarization, so Gatekeeper
+may block it. A signed and notarized public release, automatic
+updates, and a stable release channel are not configured yet. See
 [release readiness](docs/releases.md) for the requirements before publishing a
 release.
 

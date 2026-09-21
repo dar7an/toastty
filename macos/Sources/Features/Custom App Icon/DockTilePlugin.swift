@@ -7,13 +7,17 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
 
-    // Separate defaults based on debug vs release builds so we can test icons
-    // without messing up releases.
-    #if DEBUG
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.dar7an.toastty.debug")
-    #else
-    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.dar7an.toastty")
-    #endif
+    // Read the host app's defaults so each build — debug, local, or release —
+    // keeps its own icon state. The plugin lives at Contents/PlugIns inside the
+    // app bundle, so the app is three directories up from the plugin bundle.
+    private lazy var ghosttyUserDefaults: UserDefaults? = {
+        let appURL = pluginBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        guard let identifier = Bundle(url: appURL)?.bundleIdentifier else { return nil }
+        return UserDefaults(suiteName: identifier)
+    }()
 
     private var iconChangeObserver: Any?
 

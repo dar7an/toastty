@@ -36,5 +36,11 @@ A file for [guiding coding agents](https://agents.md/).
 - Read `docs/development.md` and preserve the inherited Ghostty MIT license.
 - Use the Toastty build/test scripts; the Xcode scheme remains named Ghostty.
 - Keep fork changes focused and validate rendered UI, not only compilation.
+- `/Applications/Toastty.app` (`com.dar7an.toastty`) is the pinned installed
+  build. Never overwrite, delete, move, or update it during development; local
+  builds stay under `macos/build/` and use isolated bundle IDs
+  (`com.dar7an.toastty.debug` for Debug, `com.dar7an.toastty.local` for
+  ReleaseLocal). Only the `Release` configuration produces
+  `com.dar7an.toastty` for a deliberate release install.
 - Do not publish, sign releases, or create issues/PRs without user authorization.
 - Do not restore Ghostty's update feed, publishing jobs, or crash-reporting defaults.
