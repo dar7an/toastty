@@ -14,7 +14,15 @@ final class ProjectTabChromeRenderingTests: XCTestCase {
                 let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 360),
                                       styleMask: .borderless, backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
-                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                // Contrast is read-only in SwiftUI's environment. Let the
+                // native appearance supply both color scheme and contrast.
+                let appearanceName: NSAppearance.Name
+                if mode == "contrast" {
+                    appearanceName = dark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua
+                } else {
+                    appearanceName = dark ? .darkAqua : .aqua
+                }
+                window.appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
                 defer {
                     window.contentView = nil
                     window.close()
@@ -23,12 +31,11 @@ final class ProjectTabChromeRenderingTests: XCTestCase {
                     window: window, project: TerminalProject(),
                     title: "Build · उत्पादन", pwd: "~/Projects/Toastty/Long Directory/Sources")
                 let fixture = ChromeFixture(row: row)
-                    .environment(\.colorScheme, dark ? .dark : .light)
-                    .environment(\.colorSchemeContrast, mode == "contrast" ? .increased : .standard)
                     .environment(\.accessibilityReduceTransparency, mode == "opaque")
                     .environment(\.accessibilityReduceMotion, true)
                     .environment(\.controlActiveState, mode == "inactive" ? .inactive : .key)
                 let host = NSHostingView(rootView: fixture)
+                host.appearance = window.appearance
                 window.contentView = host
                 host.frame = CGRect(x: 0, y: 0, width: 620, height: 360)
                 host.layoutSubtreeIfNeeded()
