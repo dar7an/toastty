@@ -12,9 +12,10 @@ concurrency:
   group: toastty-${{ github.workflow }}
   cancel-in-progress: false
 env:
+  NIGHTLY_BUILD: ${{ github.run_number }}.${{ github.run_attempt }}
   NIGHTLY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 jobs:
-  dmg:
+  nightly:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -43,63 +44,20 @@ jobs:
           version: 0.16.0
       - name: Install macOS development tools
         run: brew install nushell swiftlint
-      - name: Build preview with the distribution identity
-        run: |
-          zig build -Demit-macos-app=false -Doptimize=ReleaseFast
-          macos/build.nu --configuration Release
-          # An ad-hoc host cannot validate Sparkle's Developer ID team. Apply
-          # the existing local-preview entitlements only to this CI artifact.
-          codesign --force --sign - --options runtime --entitlements macos/GhosttyReleaseLocal.entitlements \
-            macos/build/Release/Toastty.app
-          macos/build/Release/Toastty.app/Contents/MacOS/toastty --version
-      - name: Verify signature and package dmg
-        run: |
-          set -euo pipefail
-          staging="$(mktemp -d)/staging"
-          mkdir -p "$staging"
-          cp -R macos/build/Release/Toastty.app "$staging/"
-          ln -s /Applications "$staging/Applications"
-          cp LICENSE NOTICE.md "$staging/"
-          codesign --verify --deep --strict "$staging/Toastty.app"
-          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$staging/Toastty.app/Contents/Info.plist")" == com.dar7an.toastty ]]
-          hdiutil create -volname Toastty -srcfolder "$staging" -format UDZO Toastty.dmg
-          hdiutil verify Toastty.dmg
-      - name: Publish nightly prerelease
+      - name: Require Toastty update signing key
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: test -n "$SPARKLE_PRIVATE_KEY"
+      - name: Build isolated ad-hoc nightly
         run: |
           set -euo pipefail
-          # An older CI run can finish after a newer one. Never roll nightly back.
-          git ls-remote --tags origin refs/tags/nightly > nightly-ref.txt
-          if [[ -s nightly-ref.txt ]]; then
-            git fetch origin tag nightly --force
-            if ! git merge-base --is-ancestor nightly "$NIGHTLY_SHA"; then
-              echo 'A newer or divergent nightly is already published; leaving it intact.'
-              exit 0
-            fi
-          fi
-          short_sha="${NIGHTLY_SHA:0:7}"
-          dmg_sha="$(shasum -a 256 Toastty.dmg | cut -d' ' -f1)"
-          architecture="$(lipo -archs macos/build/Release/Toastty.app/Contents/MacOS/toastty)"
-          minimum_os="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' macos/build/Release/Toastty.app/Contents/Info.plist)"
-          cat > notes.md <<EOF
-          Automated preview build of Toastty at commit [\`${short_sha}\`](https://github.com/dar7an/toastty/commit/${NIGHTLY_SHA}).
-
-          **This preview is ad-hoc signed, not Developer ID signed or notarized.**
-          Gatekeeper may block it. A signed and notarized installer is not yet available.
-          The app uses Toastty's distribution identity and would replace an existing
-          Toastty installation; keep any pinned installation when evaluating previews.
-
-          Architecture: \`${architecture}\`. Minimum macOS: \`${minimum_os}\`.
-
-          SHA-256 (\`Toastty.dmg\`): \`${dmg_sha}\`
-          EOF
-          if gh release view nightly > /dev/null 2>&1; then
-            gh release upload nightly Toastty.dmg --clobber
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$NIGHTLY_SHA" -F force=true
-            gh release edit nightly --title 'Nightly preview' --notes-file notes.md --prerelease --latest=false
-          else
-            gh release create nightly --target "$NIGHTLY_SHA" --title 'Nightly preview' \
-              --notes-file notes.md --prerelease --latest=false Toastty.dmg
-          fi
+          zig build -Demit-macos-app=false -Doptimize=ReleaseFast
+          macos/build.nu --configuration ReleaseLocal
+          python3 scripts/package-nightly.py --build "$NIGHTLY_BUILD" --commit "$NIGHTLY_SHA"
+          "macos/build/Nightly/Toastty Nightly.app/Contents/MacOS/toastty" --version
+      - name: Sign and publish nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: scripts/publish-nightly.sh

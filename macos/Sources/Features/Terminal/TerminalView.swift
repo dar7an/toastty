@@ -126,8 +126,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 }
             }
 
-            // Show update information above all else. Gated until Toastty
-            // owns a signed update feed; the updater is never started.
+            // Debug simulator only; nightly builds use Sparkle’s standard dialogs.
             #if DEBUG
             if viewModel.updateOverlayIsVisible {
                 UpdateOverlay()

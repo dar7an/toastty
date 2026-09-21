@@ -54,7 +54,7 @@ struct AboutView: View {
 
             VStack(alignment: .center, spacing: 32) {
                 VStack(alignment: .center, spacing: 8) {
-                    Text("Toastty")
+                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Toastty")
                         .bold()
                         .font(.title)
                     Text("A macOS terminal with project workspaces.\nBuilt on Ghostty and libghostty.")
@@ -82,7 +82,7 @@ struct AboutView: View {
                     }
                     if let commit, commit != "",
                        let url = githubURL?.appendingPathComponent("/commits/\(commit)") {
-                        PropertyRow(label: "Commit", text: commit, url: url)
+                        PropertyRow(label: "Commit", text: String(commit.prefix(7)), url: url)
                     }
                 }
                 .frame(maxWidth: .infinity)

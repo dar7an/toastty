@@ -19,7 +19,7 @@ executable are `Toastty.app` and `toastty`.
 
 ## Build outputs
 
-The only dev build location is `macos/build/<Configuration>/Toastty.app`
+The standard dev build location is `macos/build/<Configuration>/Toastty.app`
 (ignored by git). Run `macos/build.nu` from the repository root — running it
 from another directory once produced a stray `macos/macos/build` copy. Do not
 keep renamed copies (e.g. `Toastty QA.app`) or per-checkout builds in
@@ -33,6 +33,11 @@ rm -rf macos/build  # canonical dev builds; rebuild with scripts/build.sh
 Xcode GUI builds land under `~/Library/Developer/Xcode/DerivedData/` and also
 appear in Spotlight. Prefer `scripts/build.sh` / `macos/build.nu`, and delete
 `DerivedData/Ghostty-*/Build/Products/*/Toastty.app` if duplicates show up.
+
+Nightly packaging additionally uses `macos/build/Nightly/Toastty Nightly.app`.
+Updater acceptance uses `macos/build/NightlyTest/Toastty Nightly Test.app` with a
+separate test identity and loopback feed. These are deliberate packaging outputs,
+not renamed Debug copies. See `releases.md` for signing and update testing.
 
 ## Checks
 

@@ -27,6 +27,8 @@ jobs:
           python3 scripts/bundle-notices.py
           git diff --exit-code -- macos/Sources/ThirdPartyNotices.txt
           git diff --check
+      - name: Test nightly packaging
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Build and run unit tests
         run: scripts/test.sh
       - name: Preserve test results

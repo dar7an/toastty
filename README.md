@@ -55,13 +55,16 @@ The workspace layout stays clear as your projects and tabs grow.
 ## Project status
 
 Toastty is a development preview, and its behavior and configuration may
-change. CI publishes a preview `Toastty.dmg` from successful commits on `main`
+change. CI publishes **Toastty Nightly** from successful commits on `main`
 as a [nightly prerelease](https://github.com/dar7an/toastty/releases/tag/nightly).
-It is ad-hoc signed, without Developer ID signing or notarization, so Gatekeeper
-may block it. A signed and notarized public release, automatic
-updates, and a stable release channel are not configured yet. See
-[release readiness](docs/releases.md) for the requirements before publishing a
-release.
+Download the ZIP and move Toastty Nightly.app into Applications. Sparkle checks
+for signed updates, downloads them in the background, and installs on quit.
+**Check for Updates…** in the app menu opens the manual update UI. Nightly has its
+own app identity and does not replace a pinned Toastty installation.
+
+Nightlies are ad-hoc signed, without Developer ID signing or notarization, so
+macOS may require approval on first launch. A notarized stable release is not
+configured yet. See [updates and release readiness](docs/releases.md).
 
 The supported Toastty target is macOS. The inherited Linux source remains in the
 repository for upstream compatibility; it is not a supported Toastty

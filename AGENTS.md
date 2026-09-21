@@ -42,5 +42,8 @@ A file for [guiding coding agents](https://agents.md/).
   (`com.dar7an.toastty.debug` for Debug, `com.dar7an.toastty.local` for
   ReleaseLocal). Only the `Release` configuration produces
   `com.dar7an.toastty` for a deliberate release install.
+- Nightly packaging uses `macos/build/Nightly/Toastty Nightly.app` with
+  `com.dar7an.toastty.nightly`; updater QA uses `NightlyTest` and
+  `com.dar7an.toastty.nightly.test`. Neither may replace the pinned app.
 - Do not publish, sign releases, or create issues/PRs without user authorization.
 - Do not restore Ghostty's update feed, publishing jobs, or crash-reporting defaults.

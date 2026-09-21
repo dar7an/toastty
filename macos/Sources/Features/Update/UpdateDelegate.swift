@@ -1,25 +1,19 @@
 import Sparkle
-import Cocoa
 
-extension UpdateDriver: SPUUpdaterDelegate {
+extension UpdateController: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
-        // No Toastty appcast is configured. Upstream feeds must never be used.
-        return nil
+        // Use the feed sealed into this app, never an inherited preference.
+        Bundle.main.infoDictionary?["SUFeedURL"] as? String
     }
 
-    /// Called when an update is scheduled to install silently,
-    /// which occurs when `auto-update = download`.
-    ///
-    /// When `auto-update = check`, Sparkle will call the corresponding
-    /// delegate method on the responsible driver instead.
-    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        viewModel.state = .installing(.init(
-            appcastItem: item,
-            retryTerminatingApplication: immediateInstallHandler
-        ))
-        AppDelegate.logger.info("Version: \(item.displayVersionString) installed silently, waiting for relaunch...")
-        // Even when hasUnobtrusiveTarget is false, we don't show the alert immediately.
-        // We wait until the user manually checks for updates or relaunches.
-        return true
+    func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        AppDelegate.logger.info("Nightly \(item.versionString) is ready to install on quit")
+        // Sparkle installs on normal quit and can offer its standard UI later.
+        // Never invoke the immediate restart handler in the background.
+        return false
     }
 }
