@@ -42,7 +42,7 @@ without restarting. The choice is saved for the next launch and applies to all
 windows and Quick Terminal. **Use Configuration** clears the menu override.
 You can also search for **Appearance** in the command palette (⇧⌘P).
 
-The default pair is GitHub Light Default / GitHub Dark Default. To use other
+The default pair is Atom One Light / Atom One Dark. To use other
 bundled themes, choose **Toastty → Settings** and add, for example:
 
 ```ini

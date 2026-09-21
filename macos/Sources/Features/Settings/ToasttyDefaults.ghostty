@@ -1,2 +1,2 @@
 # Loaded before user configuration so every setting remains overridable.
-theme = light:GitHub Light Default,dark:GitHub Dark Default
+theme = light:Atom One Light,dark:Atom One Dark
