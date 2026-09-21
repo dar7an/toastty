@@ -1,9 +1,7 @@
 import GhosttyKit
 import SwiftUI
 
-/// Shared chrome tokens for the non-terminal window UI: the project tab
-/// strip's bottom separator and every terminal split divider draw the same
-/// Xcode-style line — one physical pixel of ``separatorColor``.
+/// Shared adaptive colors and hairline metrics for window chrome.
 enum ProjectChrome {
     /// The system separator color, matching Xcode's tab-bar and split
     /// divider lines. It adapts to light and dark appearances and

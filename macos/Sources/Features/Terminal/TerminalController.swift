@@ -1637,12 +1637,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
             controllers.forEach { $0.closeTabImmediately() }
-            self.undoManager?.setActionName("Close Project")
+            self.undoManager?.setActionName("Delete Project")
             self.undoManager?.endUndoGrouping()
         }
         if controllers.contains(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }) {
-            confirmClose(messageText: "Close Project?",
-                         informativeText: "Running processes in this project's tabs will be stopped.",
+            confirmClose(messageText: "Delete Project?",
+                         informativeText: "This removes the project from Toastty and stops its running terminals. Files in its folder are kept.",
+                         confirmButtonTitle: "Delete Project",
                          completion: close)
         } else {
             close()

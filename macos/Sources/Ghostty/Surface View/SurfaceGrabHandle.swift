@@ -1,99 +1,46 @@
 import SwiftUI
 
 extension Ghostty {
-    /// A grab handle overlay at the top of the surface for dragging a surface.
+    /// A dedicated pane header keeps the drag target clear of terminal text.
     struct SurfaceGrabHandle: View {
-        // Size of the actual drag handle; the hover reveal region is larger.
-        private static let handleSize = CGSize(width: 80, height: 12)
-
-        // Reveal the handle anywhere within the top % of the split height.
-        private static let hoverHeightFactor: CGFloat = 0.2
-
-        @ObservedObject var surfaceView: SurfaceView
+        let surfaceView: SurfaceView
+        let isSplit: Bool
         let dragHandle: Ghostty.Config.DragHandle
 
-        @State private var isHovering: Bool = false
-        @State private var isDragging: Bool = false
+        @State private var isHovering = false
+        @State private var isDragging = false
+        @Environment(\.colorSchemeContrast) private var contrast
 
-        private var handleVisible: Bool {
+        private var isVisible: Bool {
             switch dragHandle {
-            case .always:
-                return true
-            case .never:
-                return false
-            case .auto:
-                break
+            case .always: true
+            case .never: false
+            case .auto: isSplit
             }
-            // `.auto` mirrors the Linux surface.blp idiom: the handle only
-            // appears when the surface is in a split and can actually be dragged
-            // elsewhere — including outside fullscreen.
-            guard let window = surfaceView.window,
-                  let controller = window.windowController as? BaseTerminalController
-            else { return true }
-            return controller.surfaceTree.isSplit
-        }
-
-        private var ellipsisVisible: Bool {
-            switch dragHandle {
-            case .always:
-                return true
-            case .never:
-                return false
-            case .auto:
-                break
-            }
-            // If the cursor isn't visible, never show the handle
-            guard surfaceView.cursorVisible else { return false }
-            // If we're hovering or actively dragging, always visible
-            if isHovering || isDragging { return true }
-
-            // Require our mouse location to be within the top area of the
-            // surface.
-            guard let mouseLocation = surfaceView.mouseLocationInSurface else { return false }
-            return Self.isInHoverRegion(mouseLocation, in: surfaceView.bounds)
         }
 
         var body: some View {
-            if handleVisible {
+            if isVisible {
                 ZStack {
                     SurfaceDragSource(
                         surfaceView: surfaceView,
                         isDragging: $isDragging,
-                        isHovering: $isHovering
-                    )
-                    .frame(width: Self.handleSize.width, height: Self.handleSize.height)
-                    .contentShape(Rectangle())
-                    .help("Drag this split to another split's edge to move and snap it into place.")
+                        isHovering: $isHovering)
+                        .frame(width: 64, height: 18)
+                        .contentShape(Rectangle())
+                        .help("Drag to move this terminal pane")
+                        .accessibilityLabel("Move Terminal Pane")
 
-                    if ellipsisVisible {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.primary.opacity(isHovering ? 0.8 : 0.3))
-                            .offset(y: -3)
-                            .allowsHitTesting(false)
-                            .transition(.opacity)
-                    }
+                    Capsule()
+                        .fill(Color.primary.opacity(
+                            contrast == .increased ? 0.85 : (isHovering || isDragging ? 0.65 : 0.35)))
+                        .frame(width: 32, height: 3)
+                        .allowsHitTesting(false)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .motionAnimation(.easeOut(duration: 0.12), value: isHovering)
             }
-        }
-
-        /// The full-width hover band that reveals the drag handle.
-        private static func hoverRect(in bounds: CGRect) -> CGRect {
-            guard !bounds.isEmpty else { return .zero }
-
-            let hoverHeight = min(bounds.height, max(handleSize.height, bounds.height * hoverHeightFactor))
-            return CGRect(
-                x: bounds.minX,
-                y: bounds.maxY - hoverHeight,
-                width: bounds.width,
-                height: hoverHeight
-            )
-        }
-
-        /// Returns true when the pointer is inside the top hover band.
-        private static func isInHoverRegion(_ point: CGPoint, in bounds: CGRect) -> Bool {
-            hoverRect(in: bounds).contains(point)
         }
     }
 }

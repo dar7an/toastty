@@ -18,7 +18,9 @@ func makeProjectContextMenu(project: TerminalProject, model: TabSidebarModel) ->
             ?? model.rows.first(where: { $0.project.id == project.id }))
             .flatMap { $0.window.windowController as? TerminalController }
     }
-    menu.addItem(ProjectTabMenuItem("Close Project") { targetController()?.closeProject() })
+    let delete = ProjectTabMenuItem("Delete Project") { targetController()?.closeProject() }
+    delete.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+    menu.addItem(delete)
     menu.addItem(ProjectTabMenuItem("New Project") { targetController()?.newProject(nil) })
     menu.addItem(.separator())
     if #available(macOS 14.0, *) {
@@ -53,6 +55,16 @@ struct ProjectSidebarContextMenu: NSViewRepresentable {
         // Preserve the list's selection, double-click and text-field gestures.
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        /// Include the native row's selection background and insets, not just
+        /// the hosted label. Otherwise right-clicking its trailing space opens
+        /// the list's empty-area menu instead of the project's menu.
+        func containsMenuPoint(_ point: NSPoint) -> Bool {
+            let row = sequence(first: self as NSView, next: { $0.superview })
+                .compactMap { $0 as? NSTableRowView }.first
+            let region = row ?? self
+            return region.bounds.contains(region.convert(point, from: nil))
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let monitor { NSEvent.removeMonitor(monitor) }
@@ -61,7 +73,7 @@ struct ProjectSidebarContextMenu: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
                 guard let self, event.window === self.window, !self.isHiddenOrHasHiddenAncestor,
                       event.type == .rightMouseDown || event.modifierFlags.contains(.control),
-                      self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                      self.containsMenuPoint(event.locationInWindow) else { return event }
                 NSMenu.popUpContextMenu(self.makeMenu(), with: event, for: self)
                 return nil
             }

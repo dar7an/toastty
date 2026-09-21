@@ -6,6 +6,86 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
+    @Test func paneGrabHandleIsHittableThroughItsVisualPill() throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        // Release the native views and terminal before their owning core app.
+        try autoreleasepool {
+            let surface = Ghostty.SurfaceView(try #require(app.app))
+            let host = NSHostingView(rootView:
+                Ghostty.SurfaceGrabHandle(surfaceView: surface, isSplit: true, dragHandle: .auto))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 18),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer {
+                window.contentView = nil
+                window.close()
+            }
+            host.layoutSubtreeIfNeeded()
+            let source = try #require(descendants(of: host).first { $0 is NSDraggingSource })
+            let frame = source.convert(source.bounds, to: host)
+            #expect(frame.width >= 44)
+            #expect(frame.height >= 18)
+            #expect(host.hitTest(NSPoint(x: frame.midX, y: frame.midY)) === source)
+        }
+        withExtendedLifetime(app) {}
+    }
+
+    @Test func projectContextMenuCoversTheNativeRowInsets() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: .titled, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let row = NSTableRowView(frame: NSRect(x: 10, y: 50, width: 260, height: 48))
+        let context = ProjectSidebarContextMenu.ContextView(makeMenu: { NSMenu() })
+        context.frame = NSRect(x: 12, y: 8, width: 70, height: 32)
+        row.addSubview(context)
+        window.contentView?.addSubview(row)
+        for point in [NSPoint(x: 2, y: 2), NSPoint(x: 250, y: 24)] {
+            #expect(context.containsMenuPoint(row.convert(point, to: nil)))
+        }
+        #expect(!context.containsMenuPoint(row.convert(NSPoint(x: 100, y: 60), to: nil)))
+        #expect(context.hitTest(NSPoint(x: 20, y: 20)) == nil)
+    }
+
+    @Test func rapidSidebarTogglesSettleWithoutResizingHiddenTabsRepeatedly() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let first = makeWindow(app, width: 280)
+        let second = makeWindow(app, width: 280)
+        defer {
+            for fixture in [first, second] {
+                fixture.controller.window = nil
+                fixture.window.close()
+            }
+        }
+        first.window.addTabbedWindow(second.window, ordered: .above)
+        second.window.makeKeyAndOrderFront(nil)
+        let group = try #require(second.window.tabGroup)
+        let model = group.tabSidebarModel
+        for fixture in [first, second] {
+            fixture.split.bind(to: model, animated: false)
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+        }
+        await drainMainQueue()
+        model.setVisible(false)
+        // The hidden window completes synchronously, without a queued
+        // animation or the additional main-queue hop that caused the lag.
+        #expect(first.split.sidebarSplitItem.isCollapsed)
+        model.setVisible(true)
+        model.setVisible(false)
+        model.setVisible(true)
+        try await Task.sleep(for: .milliseconds(300))
+        for fixture in [first, second] {
+            fixture.window.contentView?.layoutSubtreeIfNeeded()
+            #expect(!fixture.split.sidebarSplitItem.isCollapsed)
+            #expect(abs(fixture.split.sidebarColumnWidth - 280) < 1)
+        }
+        #expect(model.sidebarState.isVisible)
+        #expect(model.sidebarState.expandedWidth == 280)
+    }
+
     @Test func tabHoverPreviewNeverSelectsTheTabAndCancelsPendingPresentation() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)

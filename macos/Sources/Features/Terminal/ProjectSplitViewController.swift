@@ -167,7 +167,7 @@ final class ProjectSplitViewController: NSSplitViewController {
                 .id(ObjectIdentifier(model)))
         toolbarDelegate?.updateTabStripModel(model)
         modelCancellable = model.$sidebarState
-            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
             .sink { [weak self] state in
                 guard let self else { return }
                 self.terminalController?.sidebarState = state
@@ -212,6 +212,7 @@ final class ProjectSplitViewController: NSSplitViewController {
             return
         }
         let targetCollapsed = !state.isVisible
+        let visibilityChanged = sidebarSplitItem.isCollapsed != targetCollapsed
         let currentWidth = sidebarColumnWidth
         let widthSettled = targetCollapsed
             || abs(currentWidth - state.expandedWidth) < 0.5
@@ -225,17 +226,25 @@ final class ProjectSplitViewController: NSSplitViewController {
         isSyncing = true
         suppressObservation = true
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let animate = animated && !reduceMotion
+        // Hidden native tabs share the model. Animating all of them causes
+        // every terminal to relayout on every animation frame. Width changes
+        // during a divider drag also need to follow the pointer immediately.
+        let window = terminalController?.window
+        let isSelectedWindow = window.map { ($0.tabGroup?.selectedWindow ?? $0) === $0 } ?? false
+        let animate = animated && visibilityChanged && !reduceMotion
+            && window?.isVisible == true && isSelectedWindow
         if animate {
-            NSAnimationContext.runAnimationGroup { [self] _ in
-                if state.isVisible {
-                    sidebarSplitItem.animator().isCollapsed = false
-                    splitView.animator().setPosition(state.expandedWidth, ofDividerAt: 0)
-                } else {
-                    sidebarSplitItem.animator().isCollapsed = true
-                }
+            NSAnimationContext.runAnimationGroup { [self] context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // One native animator owns the transition. A second animated
+                // divider position competes with AppKit's width restoration.
+                sidebarSplitItem.animator().isCollapsed = targetCollapsed
             } completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == generation else { return }
+                if state.isVisible, abs(self.sidebarColumnWidth - state.expandedWidth) >= 0.5 {
+                    self.splitView.setPosition(state.expandedWidth, ofDividerAt: 0)
+                }
                 self.isSyncing = false
                 self.suppressObservation = false
             }
