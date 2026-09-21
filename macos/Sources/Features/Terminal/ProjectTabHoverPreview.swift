@@ -106,8 +106,7 @@ final class ProjectTabHoverPreview: NSObject {
         }
         let row = source.rootView.row
         let snapshot = ProjectTabSnapshot.image(of: row.window)
-        let content = ProjectTabHoverCard(title: row.title, directory: row.pwd,
-                                         shortcut: source.rootView.shortcutHint, snapshot: snapshot)
+        let content = ProjectTabHoverCard(title: row.title, directory: row.pwd, snapshot: snapshot)
         let size = NSSize(width: ProjectTabHoverCard.width, height: content.height)
         let anchor = window.convertToScreen(source.convert(source.visibleRect, to: nil))
         let screen = window.screen?.visibleFrame ?? window.frame
@@ -162,49 +161,63 @@ enum ProjectTabSnapshot {
 }
 
 private struct ProjectTabHoverCard: View {
-    static let width: CGFloat = 300
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    static let width: CGFloat = 280
+    private static let thumbnailHeight: CGFloat = width * 9 / 16
     let title: String
     let directory: String?
-    let shortcut: String?
     let snapshot: NSImage?
 
-    private var thumbnailHeight: CGFloat {
-        guard let snapshot, snapshot.size.width > 0 else { return 160 }
-        return min(200, max(112, Self.width * snapshot.size.height / snapshot.size.width))
+    private var subtitle: String? {
+        guard let directory, !directory.isEmpty, directory != title else { return nil }
+        return directory
     }
-    var height: CGFloat { 62 + thumbnailHeight }
+
+    var height: CGFloat { Self.thumbnailHeight + (subtitle == nil ? 40 : 58) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                    if let shortcut {
-                        Text(shortcut).font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                }
-                Text(directory ?? "Terminal")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 62)
             Group {
                 if let snapshot {
-                    Image(nsImage: snapshot).resizable().scaledToFit()
+                    // Keep terminal output against the top-left edge when a
+                    // tall or wide window needs cropping to the thumbnail.
+                    Image(nsImage: snapshot).resizable().scaledToFill()
                 } else {
-                    Image(systemName: "terminal").font(.system(size: 32)).foregroundStyle(.secondary)
+                    Color(nsColor: .textBackgroundColor)
+                        .overlay {
+                            Image(systemName: "terminal")
+                                .font(.system(size: 28, weight: .light))
+                                .foregroundStyle(.tertiary)
+                        }
                 }
             }
-            .frame(width: Self.width, height: thumbnailHeight)
-            .background(Color(nsColor: .textBackgroundColor))
+            .frame(width: Self.width, height: Self.thumbnailHeight, alignment: .topLeading)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(width: Self.width, height: subtitle == nil ? 40 : 58, alignment: .leading)
         }
         .frame(width: Self.width)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 12).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(contrast == .increased ? Color.primary : Color(nsColor: .separatorColor),
+                              lineWidth: contrast == .increased ? 1 : 0.5)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of \(title)")
