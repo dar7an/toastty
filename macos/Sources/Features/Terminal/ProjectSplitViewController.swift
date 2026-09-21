@@ -321,26 +321,17 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
     ) -> NSToolbarItem? {
         switch itemIdentifier {
         case Self.sidebarToggleItemIdentifier:
-            let button = NSButton()
-            button.image = NSImage(
-                systemSymbolName: "sidebar.leading",
-                accessibilityDescription: "Toggle Sidebar")
-            button.imagePosition = .imageOnly
-            button.bezelStyle = .circular
-            button.target = splitController
-            button.action = #selector(ProjectSplitViewController.toggleSidebar(_:))
-            button.toolTip = "Toggle Sidebar"
-            button.setAccessibilityLabel("Toggle Sidebar")
-            button.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                button.widthAnchor.constraint(equalToConstant: 28),
-                button.heightAnchor.constraint(equalToConstant: 28),
-            ])
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Toggle Sidebar"
             item.paletteLabel = "Toggle Sidebar"
             item.toolTip = "Toggle Sidebar"
-            item.view = button
+            item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
+            item.target = splitController
+            item.action = #selector(ProjectSplitViewController.toggleSidebar(_:))
+            // Let AppKit draw the same circular toolbar bezel as New Tab.
+            // Nesting a circular NSButton in a bordered toolbar item produces
+            // a second, vertically stretched bezel on macOS 27.
+            item.isBordered = true
             item.visibilityPriority = .high
             return item
         case .sidebarTrackingSeparator:

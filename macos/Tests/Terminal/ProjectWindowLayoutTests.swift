@@ -6,6 +6,122 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
+    @Test func tabHoverPreviewNeverSelectsTheTabAndCancelsPendingPresentation() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        let preview = ProjectTabHoverPreview()
+        defer {
+            preview.dismiss()
+            tab.window = nil
+            tabWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        await drainMainQueue()
+        let group = try #require(tabWindow.tabGroup)
+        let strip = try #require(tabWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        let cells = descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+        let inactive = try #require(cells.first { $0.rootView.row.window === window })
+        let selected = try #require(cells.first { $0.rootView.row.window === tabWindow })
+        let point = NSPoint(x: inactive.bounds.midX, y: inactive.bounds.midY)
+        preview.hover(inactive, at: point)
+        #expect(preview.isPending)
+        #expect(!preview.isVisible)
+        preview.leave(inactive)
+        preview.show()
+        #expect(!preview.isPending)
+        #expect(!preview.isVisible)
+
+        preview.hover(inactive, at: point)
+        preview.show()
+        #expect(preview.isVisible)
+        #expect(group.selectedWindow === tabWindow)
+        let panel = try #require(tabWindow.childWindows?.first { $0 is NSPanel })
+        #expect(panel.ignoresMouseEvents)
+        #expect(!panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+        #expect(!panel.isKeyWindow)
+        // Preview dismissal must precede the normal click/drag path.
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: tabWindow)
+        #expect(!preview.isVisible)
+        preview.hover(selected, at: NSPoint(x: selected.bounds.midX, y: selected.bounds.midY))
+        #expect(!preview.isPending)
+        preview.hover(inactive, at: NSPoint(x: 10, y: inactive.bounds.midY))
+        #expect(!preview.isPending) // Close-button hover keeps its own tooltip.
+        #expect(group.windows == [window, tabWindow])
+    }
+
+    @Test func tabDragCancellationReleasesTheSessionForTheNextGesture() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer {
+            NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: nil)
+            tab.window = nil
+            tabWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        let group = try #require(tabWindow.tabGroup)
+        for notification in [NSApplication.willResignActiveNotification, NSWindow.willCloseNotification] {
+            group.selectedWindow = tabWindow
+            await drainMainQueue()
+            let strip = try #require(tabWindow.toolbar?.items.first {
+                $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+            }?.view)
+            let cell = try #require(descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+                .first { $0.rootView.row.window === tabWindow })
+            let point = NSPoint(x: cell.bounds.midX, y: cell.bounds.midY)
+            let event = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDragged, location: cell.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                windowNumber: tabWindow.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            ProjectTabDragSession.begin(from: cell, event: event, grabPoint: point)
+            #expect(group.tabSidebarModel.liftedTabID == ObjectIdentifier(tabWindow))
+            NotificationCenter.default.post(name: notification, object: tabWindow)
+            #expect(group.tabSidebarModel.liftedTabID == nil)
+            #expect(group.windows == [window, tabWindow])
+        }
+    }
+
+    @Test func movedToolbarResolvesItsTerminalAndUsesItsOwnScreenCoordinates() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        await drainMainQueue()
+        let toolbarWindow = NSWindow(contentRect: NSRect(x: 600, y: 600, width: 800, height: 60),
+                                     styleMask: .borderless, backing: .buffered, defer: false)
+        toolbarWindow.isReleasedWhenClosed = false
+        defer {
+            toolbarWindow.contentView = nil
+            toolbarWindow.close()
+            fixture.controller.window = nil
+            window.close()
+        }
+        let strip = try #require(window.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        // Model AppKit reparenting the toolbar into its fullscreen host.
+        strip.removeFromSuperview()
+        toolbarWindow.contentView = strip
+        #expect(ProjectTabDragSession.terminalWindow(hosting: toolbarWindow) === window)
+        let frame = try #require(ProjectTabDragSession.screenFrame(of: strip))
+        #expect(frame == toolbarWindow.convertToScreen(strip.convert(strip.bounds, to: nil)))
+        #expect(frame != window.convertToScreen(strip.convert(strip.bounds, to: nil)))
+    }
+
     @Test func nativeToolbarFillsAvailableWidthAndPreservesTerminalHeight() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -32,9 +148,11 @@ struct ProjectWindowLayoutTests {
         #expect(hostFrame.width > 0)
         #expect(window.titlebarSeparatorStyle == .line)
 
-        #expect(!descendants(of: host)
+        let hasRailMaterial = descendants(of: host)
             .compactMap { $0 as? NSVisualEffectView }
-            .contains { $0.material == .titlebar })
+            .contains { $0.material == .titlebar }
+        #expect(hasRailMaterial || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ||
+                NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast)
         #expect(descendants(of: host).contains { $0 is ProjectTabCellHostingView })
         let newTab = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.newTabItemIdentifier
@@ -42,13 +160,14 @@ struct ProjectWindowLayoutTests {
         let sidebar = try #require(window.toolbar?.items.first {
             $0.itemIdentifier == ProjectToolbarDelegate.sidebarToggleItemIdentifier
         })
-        let sidebarButton = try #require(sidebar.view as? NSButton)
         #expect(newTab.isBordered)
         #expect(newTab.action == #selector(TerminalController.newTab(_:)))
         #expect(newTab.target === controller)
         #expect(newTab.view == nil)
-        #expect(abs(sidebarButton.frame.width - sidebarButton.frame.height) < 0.5)
-        #expect(sidebarButton.bezelStyle == .circular)
+        #expect(sidebar.isBordered)
+        #expect(sidebar.view == nil)
+        #expect(sidebar.action == #selector(ProjectSplitViewController.toggleSidebar(_:)))
+        #expect(sidebar.target === split)
         #expect(split.sidebarSplitItem.titlebarSeparatorStyle == .none)
         #expect(split.sidebarSplitItem.allowsFullHeightLayout)
 
@@ -74,6 +193,31 @@ struct ProjectWindowLayoutTests {
         await drainMainQueue()
         #expect(TerminalController.projectToolbarInset(window) > 0)
         #expect(abs(window.contentLayoutRect.height - 480) < 1)
+
+        // The navigation material follows native toolbar geometry without
+        // covering terminal content or intercepting window-drag events.
+        let toolbarBackground = try #require(container.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+        #expect(toolbarBackground.material == .titlebar)
+        #expect(toolbarBackground.blendingMode == .behindWindow)
+        let terminalFrame = split.contentViewForSizing.convert(split.contentViewForSizing.bounds, to: container)
+        #expect(abs(toolbarBackground.frame.minX - terminalFrame.minX) < 1)
+        #expect(abs(toolbarBackground.frame.maxX - container.bounds.maxX) < 1)
+        #expect(abs(toolbarBackground.frame.maxY - container.bounds.maxY) < 1)
+        #expect(abs(toolbarBackground.frame.height - TerminalController.projectToolbarInset(window)) < 1)
+        #expect(toolbarBackground.hitTest(NSPoint(x: toolbarBackground.frame.midX,
+                                                 y: toolbarBackground.frame.midY)) == nil)
+
+        // Collapsing the sidebar must extend the toolbar material all the
+        // way left; expanding restores the boundary between the two shades.
+        for isVisible in [false, true] {
+            split.applySidebarState(SidebarState(isVisible: isVisible, expandedWidth: 260), animated: false)
+            container.layoutSubtreeIfNeeded()
+            await drainMainQueue()
+            let contentLeft = split.contentViewForSizing.convert(split.contentViewForSizing.bounds, to: container).minX
+            #expect(abs(toolbarBackground.frame.minX - contentLeft) < 1)
+            #expect(isVisible ? contentLeft >= 260 : abs(contentLeft) < 1)
+            #expect(abs(toolbarBackground.frame.maxX - container.bounds.maxX) < 1)
+        }
     }
 
     @Test func nativeDividerResizeUpdatesSharedState() async throws {
@@ -142,7 +286,8 @@ struct ProjectWindowLayoutTests {
         #expect(selected.count == 1)
     }
 
-    @Test func tabTearOffUsesNativeStandaloneWindow() async throws {
+    @Test(arguments: [true, false])
+    func tabTearOffUsesNativeStandaloneWindow(selected: Bool) async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let fixture = makeWindow(app, width: 220)
@@ -168,10 +313,37 @@ struct ProjectWindowLayoutTests {
             .compactMap { $0 as? ProjectTabCellHostingView }
             .first { $0.rootView.row.window === tabWindow })
 
-        #expect(cell.detachForWindowDrag())
+        if !selected { originalGroup.selectedWindow = window }
+        let originalSelection = originalGroup.selectedWindow
+        let drag = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.width / 4, y: 14))
+        let model = originalGroup.tabSidebarModel
+        drag.lift()
+        await drainMainQueue()
+        #expect(originalGroup.windows == [window, tabWindow])
+        #expect(originalGroup.selectedWindow === window)
+        #expect(model.railTabs.map(\.window) == [window])
+        #expect(model.visibleTabs.count == 2)
+        let pointer = NSPoint(x: 500, y: 600)
+        for progress: CGFloat in [0, 0.5, 1] {
+            let frame = drag.previewFrame(at: pointer, progress: progress)
+            #expect(abs(frame.minX + frame.width / 4 - pointer.x) < 0.5)
+            #expect(abs(frame.maxY - pointer.y - 14) < 0.5)
+        }
+        drag.end(cancelled: true, at: pointer)
+        await drainMainQueue()
+        #expect(originalGroup.selectedWindow === originalSelection)
+        #expect(model.liftedTabID == nil)
+        #expect(model.railTabs.map(\.window) == [window, tabWindow])
+
+        let tearOff = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.midX, y: 14))
+        tearOff.lift()
+        let screen = try #require(NSScreen.main)
+        let edge = NSPoint(x: screen.visibleFrame.maxX - 5, y: screen.visibleFrame.minY + 5)
+        tearOff.finish(accepted: false, detach: true, at: edge)
         await drainMainQueue()
         #expect(originalGroup.windows == [window])
         #expect(tabWindow.tabGroup == nil)
+        #expect(screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(tabWindow.frame))
         #expect(tab.project.id == controller.project.id)
         let detachedModel = tabWindow.standaloneTabSidebarModel
         #expect(detachedModel.rows.map(\.window) == [tabWindow])

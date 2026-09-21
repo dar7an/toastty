@@ -18,10 +18,24 @@ Before publishing a release, a maintainer must:
 - Test the downloaded artifact on a clean machine. Publish its checksum, minimum
   macOS version, architecture, migration notes, and rollback instructions.
 
-There is deliberately no automatic publishing workflow, borrowed signing identity,
-upstream upload target, or live auto-update feed. Enabling Sparkle later requires
-a Toastty-owned signing key, appcast, update tests, and deliberate code changes.
-Never use Ghostty's key or feed for Toastty.
+CI publishes an ad-hoc signed `Toastty.dmg` to the `nightly` GitHub prerelease
+only after the exact commit passes the main-branch CI workflow. Manual runs
+must also target `main` and satisfy that check. Older runs cannot replace a
+newer nightly. Release notes include the source commit, checksum, architecture,
+and minimum macOS version.
+
+Nightlies use the `Release` configuration and `com.dar7an.toastty` identity.
+CI applies the existing local-preview entitlements to the ad-hoc artifact so
+it can load its bundled framework without a shared Developer ID team, then
+checks that the executable starts. The signed-release configuration is unchanged.
+`ReleaseLocal` remains an isolated development build (`com.dar7an.toastty.local`).
+A nightly installation would replace an existing Toastty app; preserve pinned
+installations during development. Nightlies have no Developer ID signature or
+notarization and may be blocked by Gatekeeper. They are previews, not stable releases.
+
+There is no borrowed signing identity, upstream upload target, or live auto-update
+feed. Enabling Sparkle later requires a Toastty-owned signing key, appcast, update
+tests, and deliberate code changes. Never use Ghostty's key or feed for Toastty.
 
 Until these gates are met, label builds as previews. Do not advertise a stable
 daily-driver release or ask users to bypass Gatekeeper.

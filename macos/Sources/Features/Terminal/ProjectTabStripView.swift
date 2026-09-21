@@ -79,6 +79,7 @@ struct ProjectTabStripView: View {
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
+        .background { ProjectTabRailBackground() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -87,17 +88,17 @@ struct ProjectTabStripView: View {
 
     private var rail: some View {
         GeometryReader { geometry in
-            let selectedIndex = model.visibleTabs.firstIndex {
+            let selectedIndex = model.railTabs.firstIndex {
                 $0.id == model.selection
             }
             let widths = Self.cellWidths(
                 available: geometry.size.width,
-                count: model.visibleTabs.count,
+                count: model.railTabs.count,
                 selectedIndex: selectedIndex)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
-                        ForEach(Array(model.visibleTabs.enumerated()), id: \.element.id) { index, row in
+                        ForEach(Array(model.railTabs.enumerated()), id: \.element.id) { index, row in
                             ProjectTabCellHost(
                                 row: row,
                                 isSelected: row.id == model.selection,
@@ -111,6 +112,7 @@ struct ProjectTabStripView: View {
                     }
                     .modifier(ProjectTabScrollTargets())
                     .motionAnimation(.easeOut(duration: 0.18), value: model.selection)
+                    .motionAnimation(.easeOut(duration: 0.18), value: model.liftedTabID)
                     .padding(.horizontal, Self.railPadding / 2)
                     .padding(.vertical, (Self.stripHeight - Self.cellHeight) / 2)
                 }
@@ -122,7 +124,7 @@ struct ProjectTabStripView: View {
                     delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
                 .onAppear { revealSelection(proxy) }
                 .onChange(of: model.selection) { _ in revealSelection(proxy) }
-                .onChange(of: model.visibleTabs.map(\.id)) { _ in revealSelection(proxy) }
+                .onChange(of: model.railTabs.map(\.id)) { _ in revealSelection(proxy) }
                 .onChange(of: geometry.size.width) { _ in revealSelection(proxy) }
             }
         }
@@ -144,7 +146,7 @@ struct ProjectTabStripView: View {
     /// the selected tab. They are overlays, so they take no layout width
     /// and the equal-share sizing stays exact.
     private func showsSeparator(at index: Int) -> Bool {
-        let tabs = model.visibleTabs
+        let tabs = model.railTabs
         guard index > 0, index < tabs.count else { return false }
         return tabs[index].id != model.selection && tabs[index - 1].id != model.selection
     }
@@ -178,6 +180,7 @@ struct ProjectTabCell: View {
     @Environment(\.displayScale) private var displayScale
     @State private var dropState: ProjectTabDropState = .idle
     @StateObject private var dragSession = TerminalLayoutDragSession()
+    @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
@@ -204,7 +207,9 @@ struct ProjectTabCell: View {
                 .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Drag to reorder this tab or pull it into a new window.")
+            .accessibilityHint([row.pwd, shortcutHint,
+                                "Drag to reorder this tab or pull it into a new window."]
+                .compactMap { $0 }.joined(separator: "\n"))
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -252,8 +257,10 @@ struct ProjectTabCell: View {
             }
         }
         .overlay {
-            switch TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
-                ? dropState : .idle {
+            switch tabDragFeedback.railTarget?.windowID == row.id
+                ? tabDragFeedback.railTarget?.position ?? .idle
+                : (TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
+                   ? dropState : .idle) {
             case .idle:
                 EmptyView()
             case .before:
@@ -271,7 +278,6 @@ struct ProjectTabCell: View {
                 dropState: $dropState,
                 session: dragSession))
         .motionAnimation(.easeOut(duration: 0.12), value: dropState)
-        .help([row.title, row.pwd, shortcutHint].compactMap { $0 }.joined(separator: "\n"))
     }
 
 }
@@ -399,14 +405,14 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
     func dropExited(info: DropInfo) { session.end() }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        let valid = model.visibleTabs.last.map {
+        let valid = model.railTabs.last.map {
             TerminalLayoutCoordinator.shared.canDropInTabBar(session.payload, beside: $0.window)
         } ?? false
         return DropProposal(operation: valid ? .move : .forbidden)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let targetRow = model.visibleTabs.last,
+        guard let targetRow = model.railTabs.last,
               targetRow.window.windowController is TerminalController else { return false }
 
         if let payload = session.payload {
@@ -481,6 +487,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window {
+            ProjectTabHoverPreview.shared.leave(self)
             reorderGesture?.finish(commit: false, animated: false)
             reorderGesture = nil
             mouseDownPoint = nil
@@ -499,6 +506,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         mouseDownPoint = point
         pressedClose = closeButtonRect.contains(point)
         setHovered(true)
+        ProjectTabHoverPreview.shared.dismiss()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -523,11 +531,12 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = mouseDownPoint, !pressedClose,
-              let controller = rootView.row.window.windowController as? TerminalController else { return }
+              rootView.row.window.windowController is TerminalController else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
         // Stay attached to the rail for horizontal reordering. Pulling beyond
-        // the tab row hands the same pointer gesture to the detached window.
+        // the tab row lifts a window preview into a continuous drag gesture,
+        // which can still land on a terminal pane or return to the rail.
         if abs(point.y - origin.y) <= Self.tearOffDistance {
             if reorderGesture == nil {
                 reorderGesture = ProjectTabReorderGesture(source: self)
@@ -551,8 +560,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         reorderGesture = nil
         mouseDownPoint = nil
         setHovered(false)
-        detachForWindowDrag()
-        controller.window?.performDrag(with: event)
+        ProjectTabDragSession.begin(from: self, event: event, grabPoint: origin)
     }
 
     @discardableResult
@@ -590,6 +598,18 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         var cell = cell
         cell.isHovered = tabIsHovered
         rootView = cell
+        ProjectTabHoverPreview.shared.validate(self)
+    }
+
+    var canShowHoverPreview: Bool {
+        !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
+            window?.isVisible == true && window?.attachedSheet == nil &&
+            !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty &&
+            rootView.row.window.projectSidebarModel.liftedTabID == nil
+    }
+
+    func canShowHoverPreview(at point: NSPoint) -> Bool {
+        canShowHoverPreview && visibleRect.contains(point) && !closeButtonRect.contains(point)
     }
 
     override func updateTrackingAreas() {
@@ -605,8 +625,15 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         }
     }
 
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
+    override func mouseEntered(with event: NSEvent) {
+        setHovered(true)
+        ProjectTabHoverPreview.shared.hover(self, at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(false)
+        ProjectTabHoverPreview.shared.leave(self)
+    }
 
     fileprivate func setHovered(_ hovered: Bool) {
         guard tabIsHovered != hovered else { return }
@@ -615,7 +642,8 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        makeProjectTabContextMenu(for: rootView.row.window)
+        ProjectTabHoverPreview.shared.dismiss()
+        return makeProjectTabContextMenu(for: rootView.row.window)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -650,6 +678,9 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
                 self.hoveredCell = cell
             }
             cell?.setHovered(true)
+            if event.type == .mouseMoved, let cell {
+                ProjectTabHoverPreview.shared.hover(cell, at: cell.convert(event.locationInWindow, from: nil))
+            }
             guard event.type == .rightMouseDown ||
                     (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
                   let menu = cell?.menu(for: event) else { return event }
@@ -731,7 +762,35 @@ final class ProjectTabMenuItem: NSMenuItem {
     @objc private func invoke() { handler() }
 }
 
-/// Tinted Liquid Glass on macOS 26+, material fallback below. Never
+/// A continuous recessed track groups tabs like Finder's native tab row.
+/// Keep the material clipped to the rail and let the selected tab retain
+/// its own system glass surface inside the two-point inset.
+private struct ProjectTabRailBackground: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Group {
+            if reduceTransparency || contrast == .increased {
+                Color(nsColor: .controlBackgroundColor)
+            } else {
+                VisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
+            }
+        }
+        .overlay(.primary.opacity(0.04))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().strokeBorder(
+                ProjectChrome.separatorColor,
+                lineWidth: contrast == .increased ? 1 : ProjectChrome.hairline(displayScale: displayScale))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// System Liquid Glass on macOS 26+, material fallback below. Never
 /// simulated with gradients or shadows.
 struct ProjectGlass<S: InsettableShape>: ViewModifier {
     let shape: S
@@ -748,9 +807,7 @@ struct ProjectGlass<S: InsettableShape>: ViewModifier {
 #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 content.glassEffect(
-                    .regular
-                        .tint(Color(nsColor: .controlBackgroundColor))
-                        .interactive(interactive),
+                    .regular.interactive(interactive),
                     in: shape)
             } else {
                 content.background(.regularMaterial, in: shape)

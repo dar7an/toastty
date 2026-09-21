@@ -246,6 +246,56 @@ struct ProjectActionRoutingTests {
         #expect((tabWindow.contentView as? TerminalViewContainer)?.projectSplitViewController?.model?.projects.count == 1)
     }
 
+    @Test(arguments: [false, true])
+    func liftedTabDropsIntoNeighborAsSplitWithoutLosingSurfaces(detached: Bool) async throws {
+        let app = try Self.testApp()
+        let view = Ghostty.SurfaceView(try #require(app.app))
+        let controller = TerminalController(app, withSurfaceTree: .init(view: view), usesProjectSidebar: true)
+        let window = makeWindow(controller, views: [view])
+        window.tabbingMode = .preferred
+        window.orderFront(nil)
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let tabWindow = try #require(tab.window)
+        defer {
+            tearDown(tab, window: tabWindow)
+            tearDown(controller, window: window)
+        }
+        await drainMainQueue()
+        let sourceIDs = tab.surfaceTree.map(\.id)
+        let destination = try #require(controller.surfaceTree.root?.leftmostLeaf())
+        let strip = try #require(tabWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        func descendants(of view: NSView) -> [NSView] {
+            view.subviews.flatMap { [$0] + descendants(of: $0) }
+        }
+        let cell = try #require(descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+            .first { $0.rootView.row.window === tabWindow })
+        if detached {
+            #expect(cell.detachForWindowDrag())
+            await drainMainQueue()
+            // Rail reorder is group-local; split transfers retain the shared
+            // coordinator's existing same-project, cross-window behavior.
+            #expect(!TerminalLayoutCoordinator.shared.canDropInTabBar(.tab(tab.projectTabID), beside: window))
+        }
+        let drag = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.midX, y: 14))
+        drag.lift()
+        await drainMainQueue()
+        // Resolve a screen-space drop against the visible pane after
+        // selection changes, and retain the live terminal surfaces.
+        view.frame = try #require(window.contentView).bounds
+        let point = window.convertPoint(toScreen: view.convert(
+            NSPoint(x: view.bounds.maxX - 20, y: view.bounds.midY), to: nil))
+        #expect(drag.commitDrop(at: point, in: window))
+        drag.finish(accepted: true, detach: false, at: .zero)
+        await drainMainQueue()
+        #expect(controller.surfaceTree.count == sourceIDs.count + 1)
+        #expect(sourceIDs.allSatisfy { controller.surfaceTree.find(id: $0) != nil })
+        #expect(controller.surfaceTree.contains(destination))
+        #expect(tab.surfaceTree.isEmpty)
+        #expect(window.projectSidebarModel.liftedTabID == nil)
+    }
+
     @Test func layoutTransferClosesLastPaneSourceAndRestoresItOnUndo() async throws {
         let app = try Self.testApp()
         let core = try #require(app.app)

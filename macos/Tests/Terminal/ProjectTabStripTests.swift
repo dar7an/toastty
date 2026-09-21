@@ -3,6 +3,36 @@ import Testing
 @testable import Ghostty
 
 struct ProjectTabStripTests {
+    @MainActor
+    @Test func hoverPreviewStaysOnScreenAtRailEdges() {
+        let screen = NSRect(x: -1440, y: 20, width: 1440, height: 900)
+        for x: CGFloat in [-1430, -750, -10] {
+            let anchor = NSRect(x: x, y: 860, width: 54, height: 28)
+            let frame = ProjectTabHoverPreview.frame(size: NSSize(width: 300, height: 240),
+                                                    below: anchor, on: screen)
+            #expect(screen.contains(frame))
+            #expect(frame.maxY == anchor.minY - 8)
+        }
+    }
+
+    @Test func tabWindowMorphCanReverseWithoutJumping() {
+        var morph = ProjectTabDragMorph()
+        morph.advance(by: 0.06, reduceMotion: false)
+        #expect(morph.value > 0 && morph.value < 1)
+        let position = morph.value
+        let velocity = morph.velocity
+        morph.target = 0
+        #expect(morph.value == position)
+        #expect(morph.velocity == velocity)
+        for _ in 0..<60 { morph.advance(by: 1 / 60, reduceMotion: false) }
+        #expect(morph.value == 0)
+        #expect(morph.isSettled)
+        morph.target = 1
+        morph.advance(by: 0, reduceMotion: true)
+        #expect(morph.value == 1)
+        #expect(morph.isSettled)
+    }
+
     @Test func singleTabFillsRail() {
         #expect(ProjectTabStripView.cellWidths(
             available: 800,

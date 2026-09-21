@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Decorative only: toolbar controls and window dragging keep their normal hit testing.
+private final class ProjectToolbarBackground: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// Use this container to achieve a glass effect at the window level.
 /// Modifying `NSThemeFrame` can sometimes be unpredictable.
 class TerminalViewContainer: NSView {
@@ -110,6 +115,21 @@ class TerminalViewContainer: NSView {
             splitView.leadingAnchor.constraint(equalTo: leadingAnchor),
             splitView.bottomAnchor.constraint(equalTo: bottomAnchor),
             splitView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        // The toolbar and sidebar are adjacent native materials, not one
+        // uniformly tinted surface. Follow the content column so the sidebar
+        // keeps its own material through the traffic-light area.
+        let background = ProjectToolbarBackground()
+        background.material = .titlebar
+        background.blendingMode = .behindWindow
+        background.setAccessibilityHidden(true)
+        background.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(background)
+        NSLayoutConstraint.activate([
+            background.leadingAnchor.constraint(equalTo: controller.contentViewForSizing.leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor),
+            background.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
         ])
     }
 
