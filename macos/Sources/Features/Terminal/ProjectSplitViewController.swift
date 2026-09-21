@@ -323,7 +323,7 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         case Self.sidebarToggleItemIdentifier:
             let button = NSButton()
             button.image = NSImage(
-                systemSymbolName: "sidebar.left",
+                systemSymbolName: "sidebar.leading",
                 accessibilityDescription: "Toggle Sidebar")
             button.imagePosition = .imageOnly
             button.bezelStyle = .circular
