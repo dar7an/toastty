@@ -107,8 +107,8 @@ final class ProjectTabHoverPreview: NSObject {
         let row = source.rootView.row
         let snapshot = ProjectTabSnapshot.image(of: row.window)
         let content = ProjectTabHoverCard(title: row.title, directory: row.pwd, snapshot: snapshot)
-        let size = NSSize(width: ProjectTabHoverCard.width, height: content.height)
-        let anchor = window.convertToScreen(source.convert(source.visibleRect, to: nil))
+        let size = NSSize(width: ProjectTabHoverCard.width, height: ProjectTabHoverCard.height)
+        let anchor = window.convertToScreen(source.convert(source.hoverPreviewRect, to: nil))
         let screen = window.screen?.visibleFrame ?? window.frame
         let frame = Self.frame(size: size, below: anchor, on: screen)
         let panel = ProjectTabPreviewPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
@@ -164,7 +164,7 @@ private struct ProjectTabHoverCard: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     static let width: CGFloat = 280
-    private static let thumbnailHeight: CGFloat = width * 9 / 16
+    static let height: CGFloat = 196
     let title: String
     let directory: String?
     let snapshot: NSImage?
@@ -174,7 +174,8 @@ private struct ProjectTabHoverCard: View {
         return directory
     }
 
-    var height: CGFloat { Self.thumbnailHeight + (subtitle == nil ? 40 : 58) }
+    private var footerHeight: CGFloat { subtitle == nil ? 40 : 58 }
+    private var thumbnailHeight: CGFloat { Self.height - footerHeight }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,7 +193,7 @@ private struct ProjectTabHoverCard: View {
                         }
                 }
             }
-            .frame(width: Self.width, height: Self.thumbnailHeight, alignment: .topLeading)
+            .frame(width: Self.width, height: thumbnailHeight, alignment: .topLeading)
             .clipped()
 
             VStack(alignment: .leading, spacing: 3) {
@@ -209,7 +210,7 @@ private struct ProjectTabHoverCard: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(width: Self.width, height: subtitle == nil ? 40 : 58, alignment: .leading)
+            .frame(width: Self.width, height: footerHeight, alignment: .leading)
         }
         .frame(width: Self.width)
         .background(Color(nsColor: .controlBackgroundColor))

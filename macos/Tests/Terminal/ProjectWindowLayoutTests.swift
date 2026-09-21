@@ -138,6 +138,57 @@ struct ProjectWindowLayoutTests {
         #expect(group.windows == [window, tabWindow])
     }
 
+    @Test func tabHoverPreviewCentersOnEachHoveredTabAfterLayout() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        window.orderFront(nil)
+        let second = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let third = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        let selectedWindow = try #require(third.window)
+        selectedWindow.makeKeyAndOrderFront(nil)
+        let preview = ProjectTabHoverPreview()
+        defer {
+            preview.dismiss()
+            for controller in [third, second, fixture.controller] {
+                let window = controller.window
+                controller.window = nil
+                window?.close()
+            }
+        }
+        // Let the selected-tab width animation and toolbar layout settle.
+        try await Task.sleep(for: .milliseconds(250))
+        await drainMainQueue()
+        let strip = try #require(selectedWindow.toolbar?.items.first {
+            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
+        }?.view)
+        let cells = descendants(of: strip).compactMap { $0 as? ProjectTabCellHostingView }
+        let inactive = cells.filter { !$0.rootView.isSelected }.sorted {
+            $0.convert($0.bounds, to: nil).midX < $1.convert($1.bounds, to: nil).midX
+        }
+        #expect(inactive.count == 2)
+        var centers: [CGFloat] = []
+        for cell in inactive {
+            let hostWindow = try #require(cell.window)
+            let anchor = hostWindow.convertToScreen(cell.convert(cell.bounds, to: nil))
+            #expect(!cell.canShowHoverPreview(at: NSPoint(x: cell.bounds.maxX + 8, y: cell.bounds.midY)))
+            preview.hover(cell, at: NSPoint(x: cell.bounds.midX, y: cell.bounds.midY))
+            preview.show()
+            let panel = try #require(hostWindow.childWindows?.first { $0 is NSPanel })
+            panel.contentView?.layoutSubtreeIfNeeded()
+            #expect(abs(panel.frame.midX - anchor.midX) < 1)
+            #expect(abs(panel.frame.maxY - (anchor.minY - 8)) < 1)
+            // AppKit aligns fractional tab centers to the backing pixels.
+            #expect(abs(panel.frame.width - 280) <= 1)
+            #expect(abs(panel.frame.height - 196) <= 1)
+            centers.append(panel.frame.midX)
+            #expect(selectedWindow.tabGroup?.selectedWindow === selectedWindow)
+            preview.dismiss()
+        }
+        #expect(centers.count == 2 && abs(centers[0] - centers[1]) > 100)
+    }
+
     @Test func tabDragCancellationReleasesTheSessionForTheNextGesture() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
         let app = Ghostty.App(configPath: config.temporaryFile.path)

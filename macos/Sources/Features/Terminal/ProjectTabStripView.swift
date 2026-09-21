@@ -601,15 +601,19 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         ProjectTabHoverPreview.shared.validate(self)
     }
 
+    /// Non-clipping SwiftUI hosts can report the entire rail as visibleRect.
+    /// Restrict preview placement and hover tracking to this tab's visible part.
+    var hoverPreviewRect: NSRect { bounds.intersection(visibleRect) }
+
     var canShowHoverPreview: Bool {
         !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
             window?.isVisible == true && window?.attachedSheet == nil &&
-            !isHiddenOrHasHiddenAncestor && !visibleRect.isEmpty &&
+            !isHiddenOrHasHiddenAncestor && !hoverPreviewRect.isEmpty &&
             rootView.row.window.projectSidebarModel.liftedTabID == nil
     }
 
     func canShowHoverPreview(at point: NSPoint) -> Bool {
-        canShowHoverPreview && visibleRect.contains(point) && !closeButtonRect.contains(point)
+        canShowHoverPreview && hoverPreviewRect.contains(point) && !closeButtonRect.contains(point)
     }
 
     override func updateTrackingAreas() {
