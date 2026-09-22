@@ -7,7 +7,7 @@ import Sparkle
 /// calling one of these instead. This will allow us to test the update flows without having to use
 /// real updates.
 ///
-/// Debug only: there is no update feed in release builds.
+/// Debug only: real nightly updates use Sparkle’s standard dialogs.
 #if DEBUG
 enum UpdateSimulator {
     /// Complete successful update flow: checking → available → download → extract → ready → install → idle

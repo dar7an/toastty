@@ -8,39 +8,33 @@ import SwiftUI
 /// `NSToolbar` hosting view (workstream C): it depends on neither parent
 /// layout, has a fixed height (``stripHeight``) and a flexible width.
 ///
-/// Sizing formula: the capsule rail reserves ``capsulePadding`` points of
-/// interior horizontal padding (3pt on each side). The remaining width is
-/// divided equally among all tabs and floored to whole points, so every
-/// complete tab cell — close space, label and cell padding included — has
-/// the same width:
-///
-///     cellWidth = max(minCellWidth, floor((available - capsulePadding) / count))
-///
-/// While the equal share fits, tabs fill the rail exactly (inter-cell
-/// separators are overlays and consume no layout width). Once the share
-/// would drop below ``minCellWidth``, every cell stays at ``minCellWidth``
-/// and the rail scrolls horizontally instead of shrinking further. The
-/// strip is always shown, even for a single tab.
+/// Tabs share a stable width regardless of selection. The rail scrolls once
+/// there is no longer enough space to keep every title readable.
 struct ProjectTabStripView: View {
-    /// Minimum width of one complete tab cell. Below this the rail
-    /// overflows into horizontal scrolling.
-    static let minCellWidth: CGFloat = 96
+    static let cellShape = Capsule()
 
-    /// Interior horizontal padding of the capsule rail (3pt per side).
-    static let capsulePadding: CGFloat = 6
+    static let minimumCellWidth: CGFloat = 120
 
-    /// Fixed strip height, matching the header slot and toolbar items.
+    /// Interior horizontal padding of the tab row (2pt per side).
+    static let railPadding: CGFloat = 4
+
+    /// Fixed row height, matching Safari's compact native tab rhythm.
     static let stripHeight: CGFloat = 32
+    static let cellHeight: CGFloat = 28
 
     /// Width always reserved for the close button, even while hidden, so
     /// labels never jump when it appears.
-    static let closeButtonWidth: CGFloat = 20
+    static let closeButtonWidth: CGFloat = 22
 
-    /// Equal cell width for `count` tabs in `available` points of rail.
-    /// See the type documentation for the formula.
-    static func cellWidth(available: CGFloat, count: Int) -> CGFloat {
-        guard count > 0 else { return minCellWidth }
-        return max(minCellWidth, floor((available - capsulePadding) / CGFloat(count)))
+    static func cellWidths(
+        available: CGFloat,
+        count: Int,
+        selectedIndex _: Int?
+    ) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        let interior = available.isFinite ? max(0, floor(available - railPadding)) : 0
+        let width = max(minimumCellWidth, floor(interior / CGFloat(count)))
+        return Array(repeating: width, count: count)
     }
 
     @ObservedObject var model: TabSidebarModel
@@ -55,7 +49,7 @@ struct ProjectTabStripView: View {
     var body: some View {
         rail
         .frame(height: Self.stripHeight)
-        .modifier(ProjectTabStripShade())
+        .background { ProjectTabRailBackground() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project tabs")
     }
@@ -64,37 +58,42 @@ struct ProjectTabStripView: View {
 
     private var rail: some View {
         GeometryReader { geometry in
+            let selectedIndex = model.railTabs.firstIndex {
+                $0.id == model.selection
+            }
+            let widths = Self.cellWidths(
+                available: geometry.size.width,
+                count: model.railTabs.count,
+                selectedIndex: selectedIndex)
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 0) {
-                        ForEach(Array(model.visibleTabs.enumerated()), id: \.element.id) { index, row in
+                    HStack(spacing: 0) {
+                        ForEach(Array(model.railTabs.enumerated()), id: \.element.id) { index, row in
                             ProjectTabCellHost(
                                 row: row,
                                 isSelected: row.id == model.selection,
                                 onSelect: onSelect,
                                 showSeparator: showsSeparator(at: index),
                                 shortcutHint: shortcutHint(index),
-                                width: Self.cellWidth(
-                                    available: geometry.size.width,
-                                    count: model.visibleTabs.count)
+                                width: widths[index]
                             )
                             .id(row.id)
                         }
                     }
                     .modifier(ProjectTabScrollTargets())
-                    .padding(3)
+                    .motionAnimation(.easeOut(duration: 0.18), value: model.liftedTabID)
+                    .padding(.horizontal, Self.railPadding / 2)
+                    .padding(.vertical, (Self.stripHeight - Self.cellHeight) / 2)
                 }
                 // Read-only: scrolling the rail must never change selection.
                 .modifier(ProjectTabScrollPosition(target: Binding(get: { model.selection }, set: { _ in })))
-                .background(.quaternary.opacity(0.45), in: Capsule())
-                .overlay(Capsule().strokeBorder(.primary.opacity(0.06), lineWidth: 0.5))
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
                 .onDrop(
                     of: [.toasttyTerminalLayoutID, .ghosttySurfaceId],
                     delegate: ProjectTabStripDropDelegate(model: model, session: dragSession))
                 .onAppear { revealSelection(proxy) }
                 .onChange(of: model.selection) { _ in revealSelection(proxy) }
-                .onChange(of: model.visibleTabs.map(\.id)) { _ in revealSelection(proxy) }
+                .onChange(of: model.railTabs.map(\.id)) { _ in revealSelection(proxy) }
                 .onChange(of: geometry.size.width) { _ in revealSelection(proxy) }
             }
         }
@@ -116,7 +115,7 @@ struct ProjectTabStripView: View {
     /// the selected tab. They are overlays, so they take no layout width
     /// and the equal-share sizing stays exact.
     private func showsSeparator(at index: Int) -> Bool {
-        let tabs = model.visibleTabs
+        let tabs = model.railTabs
         guard index > 0, index < tabs.count else { return false }
         return tabs[index].id != model.selection && tabs[index - 1].id != model.selection
     }
@@ -146,15 +145,18 @@ struct ProjectTabCell: View {
     var shortcutHint: String?
     let width: CGFloat
     var isHovered = false
+    var isPressed = false
+    @FocusState private var selectionFocused: Bool
     @FocusState private var closeFocused: Bool
     @Environment(\.displayScale) private var displayScale
     @State private var dropState: ProjectTabDropState = .idle
     @StateObject private var dragSession = TerminalLayoutDragSession()
+    @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
         // button must not shift the label, including on the selected tab.
-        let isCloseVisible = isHovered || closeFocused
+        let isCloseVisible = isSelected || isHovered || selectionFocused || closeFocused
         return ZStack(alignment: .leading) {
             Button { onSelect(row.id) } label: {
                 Text(row.title)
@@ -162,13 +164,23 @@ struct ProjectTabCell: View {
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
-                    .frame(height: 26)
-                    .contentShape(Capsule())
+                    .frame(maxWidth: .infinity)
+                    .frame(height: ProjectTabStripView.cellHeight)
+                    .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Drag to reorder this tab or drop it into another terminal split.")
+            .focused($selectionFocused)
+            .accessibilityIdentifier("project-tab")
+            .accessibilityAction(named: Text("Close Tab")) {
+                (row.window.windowController as? TerminalController)?.closeTab(nil)
+            }
+            .accessibilityAction(named: Text("Rename Tab")) {
+                (row.window.windowController as? TerminalController)?.promptTabTitle()
+            }
+            .accessibilityHint([row.pwd, shortcutHint,
+                                "Double-click to rename. Drag to reorder or move to another window."]
+                .compactMap { $0 }.joined(separator: "\n"))
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -179,7 +191,13 @@ struct ProjectTabCell: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: ProjectTabStripView.closeButtonWidth, height: 22)
-                    .contentShape(Circle())
+                    .background {
+                        if closeFocused {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 2)
+                        }
+                    }
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .opacity(isCloseVisible ? 1 : 0)
@@ -188,16 +206,19 @@ struct ProjectTabCell: View {
             .focused($closeFocused)
             .help("Close Tab")
             .accessibilityLabel("Close \(row.title)")
+            .accessibilityIdentifier("project-tab-close")
             .padding(.leading, 4)
         }
-        .frame(width: width, height: 26)
+        .frame(width: width, height: ProjectTabStripView.cellHeight)
         .background {
-            if isSelected {
-                Color.clear.modifier(ProjectGlass())
-            } else if isHovered {
-                Capsule().fill(.primary.opacity(0.05))
-            }
+            ProjectTabChrome(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                isPressed: isPressed,
+                isFocused: selectionFocused)
         }
+        .motionAnimation(.easeOut(duration: 0.1), value: isHovered)
+        .motionAnimation(.easeOut(duration: 0.08), value: isPressed)
         .overlay(alignment: .trailing) {
             if let color = row.tabColor.displayColor {
                 Circle().fill(Color(nsColor: color))
@@ -211,13 +232,15 @@ struct ProjectTabCell: View {
             if showSeparator {
                 Rectangle()
                     .fill(ProjectChrome.separatorColor)
-                    .frame(width: ProjectChrome.hairline(displayScale: displayScale), height: 14)
+                    .frame(width: ProjectChrome.hairline(displayScale: displayScale), height: 16)
                     .allowsHitTesting(false)
             }
         }
         .overlay {
-            switch TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
-                ? dropState : .idle {
+            switch tabDragFeedback.railTarget?.windowID == row.id
+                ? tabDragFeedback.railTarget?.position ?? .idle
+                : (TerminalLayoutCoordinator.shared.canDropInTabBar(dragSession.payload, beside: row.window)
+                   ? dropState : .idle) {
             case .idle:
                 EmptyView()
             case .before:
@@ -235,7 +258,6 @@ struct ProjectTabCell: View {
                 dropState: $dropState,
                 session: dragSession))
         .motionAnimation(.easeOut(duration: 0.12), value: dropState)
-        .help([row.title, row.pwd, shortcutHint].compactMap { $0 }.joined(separator: "\n"))
     }
 
 }
@@ -246,7 +268,7 @@ private struct ProjectTabDropIndicator: View {
     var body: some View {
         Rectangle()
             .fill(Color.accentColor)
-            .frame(width: 2, height: 22)
+            .frame(width: 2, height: 24)
             .frame(maxWidth: .infinity, alignment: alignment)
             .allowsHitTesting(false)
     }
@@ -308,7 +330,7 @@ private struct ProjectTabCellDropDelegate: DropDelegate {
         case .tab(let sourceID):
             switch position {
             case .before, .after:
-                reorderTab(sourceID, into: target, after: position == .after)
+                coordinator.insertTab(sourceID, beside: row.window, after: position == .after)
             case .idle:
                 break
             }
@@ -329,23 +351,6 @@ private struct ProjectTabCellDropDelegate: DropDelegate {
         }
     }
 
-    private func reorderTab(
-        _ sourceID: UUID,
-        into target: TerminalController,
-        after: Bool
-    ) {
-        guard let source = TerminalController.all.first(where: { $0.projectTabID == sourceID }),
-              let sourceWindow = source.window,
-              let targetIndex = target.projectTabWindows.firstIndex(of: row.window),
-              let sourceIndex = target.projectTabWindows.firstIndex(of: sourceWindow),
-              source.project.id == target.project.id,
-              sourceWindow.tabGroup === row.window.tabGroup,
-              sourceWindow !== row.window else { return }
-
-        let insertionIndex = after ? targetIndex + 1 : targetIndex
-        let finalIndex = insertionIndex - (sourceIndex < insertionIndex ? 1 : 0)
-        TerminalLayoutCoordinator.shared.reorderTab(sourceID, toProjectIndex: finalIndex)
-    }
 }
 
 private struct ProjectTabStripDropDelegate: DropDelegate {
@@ -363,14 +368,14 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
     func dropExited(info: DropInfo) { session.end() }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        let valid = model.visibleTabs.last.map {
+        let valid = model.railTabs.last.map {
             TerminalLayoutCoordinator.shared.canDropInTabBar(session.payload, beside: $0.window)
         } ?? false
         return DropProposal(operation: valid ? .move : .forbidden)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard let targetRow = model.visibleTabs.last,
+        guard let targetRow = model.railTabs.last,
               targetRow.window.windowController is TerminalController else { return false }
 
         if let payload = session.payload {
@@ -394,8 +399,7 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
         guard let target = targetRow.window.windowController as? TerminalController else { return }
         switch payload {
         case .tab(let sourceID):
-            TerminalLayoutCoordinator.shared.reorderTab(
-                sourceID, toProjectIndex: max(0, target.projectTabWindows.count - 1))
+            TerminalLayoutCoordinator.shared.insertTab(sourceID, beside: targetRow.window, after: true)
         case .surface(let surfaceID):
             TerminalLayoutCoordinator.shared.extractSurface(
                 surfaceID, beside: target.projectTabID, insertionIndex: target.projectTabWindows.count)
@@ -428,25 +432,33 @@ private struct ProjectTabCellHost: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ProjectTabCellHostingView,
                       context: Context) -> CGSize? {
-        CGSize(width: width, height: 26)
+        CGSize(width: width, height: ProjectTabStripView.cellHeight)
     }
 }
 
 final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
+    static let tearOffDistance: CGFloat = 28
+
     private var hoverTrackingArea: NSTrackingArea?
     private var tabIsHovered = false
     private var mouseDownPoint: NSPoint?
     private var pressedClose = false
-    private let tabDragSource = ProjectTabDragSource()
     private var reorderGesture: ProjectTabReorderGesture?
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        // Click-through may select a tab, but must not destroy a terminal
+        // when the user is only trying to activate an inactive window.
+        guard let event else { return false }
+        return !closeButtonRect.contains(convert(event.locationInWindow, from: nil))
+    }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window {
+            ProjectTabHoverPreview.shared.leave(self)
             reorderGesture?.finish(commit: false, animated: false)
             reorderGesture = nil
             mouseDownPoint = nil
+            setHovered(false)
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -462,36 +474,44 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         mouseDownPoint = point
         pressedClose = closeButtonRect.contains(point)
         setHovered(true)
+        ProjectTabHoverPreview.shared.dismiss()
     }
 
     override func mouseUp(with event: NSEvent) {
         guard mouseDownPoint != nil else { return }
         mouseDownPoint = nil
+        let point = convert(event.locationInWindow, from: nil)
+        setHovered(bounds.contains(point))
         if let reorderGesture {
             self.reorderGesture = nil
             reorderGesture.finish(commit: true)
             setHovered(false)
             return
         }
-        let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         if pressedClose {
             if closeButtonRect.contains(point) {
                 (rootView.row.window.windowController as? TerminalController)?.closeTab(nil)
             }
         } else {
-            rootView.onSelect(rootView.row.id)
+            if rootView.row.window.projectSidebarModel.recordTabClick(rootView.row.id, timestamp: event.timestamp) {
+                (rootView.row.window.windowController as? TerminalController)?.promptTabTitle()
+            } else {
+                rootView.onSelect(rootView.row.id)
+            }
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let origin = mouseDownPoint, !pressedClose,
-              let controller = rootView.row.window.windowController as? TerminalController else { return }
+              rootView.row.window.windowController is TerminalController else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
-        // Stay attached to the rail for horizontal reordering, like Finder.
-        // Crossing out of the rail deliberately starts a pane-transfer drag.
-        if abs(point.y - origin.y) <= 28 {
+        rootView.row.window.projectSidebarModel.cancelTabClick()
+        // Stay attached to the rail for horizontal reordering. Pulling beyond
+        // the tab row lifts a window preview into a continuous drag gesture,
+        // which can still land on a terminal pane or return to the rail.
+        if abs(point.y - origin.y) <= Self.tearOffDistance && isWithinReorderRail(event) {
             if reorderGesture == nil {
                 reorderGesture = ProjectTabReorderGesture(source: self)
                 reorderGesture?.onCancel = { [weak self] in
@@ -513,30 +533,83 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         reorderGesture?.finish(commit: false, animated: false)
         reorderGesture = nil
         mouseDownPoint = nil
-        let pasteboard = NSPasteboardItem()
-        guard let data = try? JSONEncoder().encode(TerminalLayoutDragPayload.tab(controller.projectTabID)) else { return }
-        pasteboard.setData(data, forType: .toasttyTerminalLayoutID)
-        let item = NSDraggingItem(pasteboardWriter: pasteboard)
         setHovered(false)
-        layoutSubtreeIfNeeded()
-        let image = NSImage(size: bounds.size)
-        if let bitmap = bitmapImageRepForCachingDisplay(in: bounds) {
-            cacheDisplay(in: bounds, to: bitmap)
-            image.addRepresentation(bitmap)
+        ProjectTabDragSession.begin(from: self, event: event, grabPoint: origin)
+    }
+
+    private func isWithinReorderRail(_ event: NSEvent) -> Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if view is ProjectTabStripHostingView {
+                let point = view.convert(event.locationInWindow, from: nil)
+                return point.x >= view.bounds.minX - 8 && point.x <= view.bounds.maxX + 8
+            }
+            ancestor = view.superview
         }
-        item.setDraggingFrame(bounds.offsetBy(dx: point.x - origin.x, dy: point.y - origin.y), contents: image)
-        tabDragSource.onEnd = { [weak self] in self?.setHovered(false) }
-        beginDraggingSession(with: [item], event: event, source: tabDragSource)
+        return true
+    }
+
+    @discardableResult
+    func detachForWindowDrag() -> Bool {
+        let window = rootView.row.window
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else { return false }
+        tabGroup.selectedWindow = window
+        window.moveTabToNewWindow(nil)
+        tabGroup.tabSidebarModel.refresh()
+        Self.syncDetachedChrome(for: window)
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            Self.syncDetachedChrome(for: window)
+        }
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    private static func syncDetachedChrome(for window: NSWindow) {
+        let model = window.projectSidebarModel
+        model.refresh()
+        (window.contentView as? TerminalViewContainer)?
+            .projectSplitViewController?.bind(to: model, animated: false)
     }
 
     private var closeButtonRect: NSRect {
-        NSRect(x: 4, y: (bounds.height - 22) / 2, width: ProjectTabStripView.closeButtonWidth, height: 22)
+        NSRect(
+            x: 4,
+            y: (bounds.height - 22) / 2,
+            width: ProjectTabStripView.closeButtonWidth,
+            height: 22)
     }
 
     func update(_ cell: ProjectTabCell) {
         var cell = cell
         cell.isHovered = tabIsHovered
+        cell.isPressed = tabIsHovered && mouseDownPoint != nil && reorderGesture == nil && !pressedClose
         rootView = cell
+        ProjectTabHoverPreview.shared.validate(self)
+    }
+
+    /// Non-clipping SwiftUI hosts can report the entire rail as visibleRect.
+    /// Restrict preview placement and hover tracking to this tab's visible part.
+    var hoverPreviewRect: NSRect { bounds.intersection(visibleRect) }
+
+    /// In full screen AppKit may host the toolbar in an auxiliary window.
+    /// The selected terminal, not that non-key host, owns interaction focus.
+    var previewInteractionWindow: NSWindow? {
+        guard let window else { return nil }
+        if window.isKeyWindow { return window }
+        return rootView.row.window.tabGroup?.selectedWindow ?? window
+    }
+
+    var canShowHoverPreview: Bool {
+        !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
+            window?.isVisible == true &&
+            previewInteractionWindow?.attachedSheet == nil &&
+            !isHiddenOrHasHiddenAncestor && !hoverPreviewRect.isEmpty &&
+            rootView.row.window.projectSidebarModel.liftedTabID == nil
+    }
+
+    func canShowHoverPreview(at point: NSPoint) -> Bool {
+        canShowHoverPreview && hoverPreviewRect.contains(point) && !closeButtonRect.contains(point)
     }
 
     override func updateTrackingAreas() {
@@ -552,36 +625,32 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         }
     }
 
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
+    override func mouseEntered(with event: NSEvent) {
+        setHovered(true)
+        ProjectTabHoverPreview.shared.hover(self, at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(false)
+        ProjectTabHoverPreview.shared.leave(self)
+    }
 
     fileprivate func setHovered(_ hovered: Bool) {
-        guard tabIsHovered != hovered else { return }
+        let pressed = hovered && mouseDownPoint != nil && reorderGesture == nil && !pressedClose
+        guard tabIsHovered != hovered || rootView.isPressed != pressed else { return }
         tabIsHovered = hovered
         rootView.isHovered = hovered
+        rootView.isPressed = pressed
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        makeProjectTabContextMenu(for: rootView.row.window)
+        ProjectTabHoverPreview.shared.dismiss()
+        return makeProjectTabContextMenu(for: rootView.row.window)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = menu(for: event) else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-}
-
-/// NSHostingView has its own sealed SwiftUI drag-source implementation.
-/// Keep our native session's delegate separate from that implementation.
-private final class ProjectTabDragSource: NSObject, NSDraggingSource {
-    var onEnd: (() -> Void)?
-
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .withinApplication ? .move : []
-    }
-
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        onEnd?()
     }
 }
 
@@ -611,6 +680,9 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
                 self.hoveredCell = cell
             }
             cell?.setHovered(true)
+            if event.type == .mouseMoved, let cell {
+                ProjectTabHoverPreview.shared.hover(cell, at: cell.convert(event.locationInWindow, from: nil))
+            }
             guard event.type == .rightMouseDown ||
                     (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
                   let menu = cell?.menu(for: event) else { return event }
@@ -690,51 +762,6 @@ final class ProjectTabMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func invoke() { handler() }
-}
-
-/// Keep the titlebar material inside the rounded tab rail. A rectangular
-/// material behind this toolbar item leaves visible square corners around
-/// the capsule, especially in dark appearance.
-private struct ProjectTabStripShade: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    /// Applies the accessible material or opaque background for the tabbar.
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content.background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-        } else {
-            content.background {
-                VisualEffectBackground(material: .titlebar).clipShape(Capsule())
-            }
-        }
-    }
-}
-
-/// Liquid Glass capsule on macOS 26+, material fallback below. Never
-/// simulated with gradients or shadows.
-struct ProjectGlass: ViewModifier {
-    var interactive = false
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content
-                .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                .overlay(Capsule().strokeBorder(.primary.opacity(0.3), lineWidth: 1))
-        } else {
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                content.glassEffect(.regular.interactive(interactive), in: Capsule())
-            } else {
-                content.background(.regularMaterial, in: Capsule())
-            }
-#else
-            content.background(.regularMaterial, in: Capsule())
-#endif
-        }
-    }
 }
 
 private struct ProjectTabScrollTargets: ViewModifier {

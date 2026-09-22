@@ -1,19 +1,21 @@
 import GhosttyKit
 import SwiftUI
 
-/// Shared chrome tokens for the non-terminal window UI: the project tab
-/// strip's bottom separator and every terminal split divider draw the same
-/// Xcode-style line — one physical pixel of ``separatorColor``.
+/// Shared adaptive colors and hairline metrics for window chrome.
 enum ProjectChrome {
     /// The system separator color, matching Xcode's tab-bar and split
     /// divider lines. It adapts to light and dark appearances and
     /// strengthens under Increase Contrast automatically.
     static let separatorColor = Color(nsColor: .separatorColor)
 
+    /// Preview cards use a restrained corner radius; tabs use capsules.
+    static let previewCornerRadius: CGFloat = 10
+
     /// One physical pixel at `displayScale` (`Environment(\.displayScale)`),
     /// so the line is a true hairline on Retina instead of a 1pt rule.
     static func hairline(displayScale: CGFloat) -> CGFloat {
-        1 / max(displayScale, 1)
+        guard displayScale.isFinite else { return 1 }
+        return 1 / max(displayScale, 1)
     }
 }
 

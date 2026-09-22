@@ -9,13 +9,21 @@ tabs and remembers the selected tab. Switching projects keeps their shells alive
   It uses the current terminal directory. The directory name becomes the title;
   the abbreviated path appears below it. No naming dialog is required.
 - Double-click a project to rename it. Return saves; Escape cancels. Renaming does
-  not change the directory or rename files.
-- Use the sidebar icon beside the traffic lights to collapse or expand the sidebar.
+  not change the directory or rename files. The path stays visible while editing.
+- Drag projects up or down in the sidebar to rearrange them, or right-click and
+  choose **Move Project Up** or **Move Project Down**. The order is restored with
+  your windows; each project's tabs and running terminals stay intact.
+- Right-click a project and choose **Change Emoji…** to pick an icon. Selecting
+  an emoji applies it immediately. **Reset Emoji** restores the folder icon.
+- Use the button at the right edge of the sidebar header to collapse or expand the sidebar.
   Drag its divider to resize it.
 - Press **⌘T** or click **+** to add a tab to the current project.
 - Hover over a tab to reveal its close button, or use **⌘W** to close the active pane/tab.
 - Right-click a tab to rename it, close tabs, split its terminal, or assign a color.
   The circle with a red horizontal line clears the color.
+- Double-click a tab to rename it. Switching tabs keeps their widths fixed.
+- Drag a tab onto another window's tab bar to move it into that window's displayed
+  project. Its running shell, splits, tab name, and color stay intact.
 - Closing a project closes its tabs. Confirm any warning about running processes.
 - `macos-titlebar-style` interacts with the project workspace: `native`,
   `transparent`, and `tabs` share the project toolbar and tab strip (every
@@ -42,7 +50,7 @@ without restarting. The choice is saved for the next launch and applies to all
 windows and Quick Terminal. **Use Configuration** clears the menu override.
 You can also search for **Appearance** in the command palette (⇧⌘P).
 
-The default pair is GitHub Light Default / GitHub Dark Default. To use other
+The default pair is Atom One Light / Atom One Dark. To use other
 bundled themes, choose **Toastty → Settings** and add, for example:
 
 ```ini
@@ -76,8 +84,18 @@ the terminal configuration directory is shared by Toastty builds.
 
 ## Updates and support
 
-**View Toastty Releases…** opens [Toastty releases](https://github.com/dar7an/toastty/releases).
-Automatic installation is disabled until Toastty has a signed update channel.
+By default, Toastty Nightly checks for updates every six hours and downloads them
+in the background. It installs a prepared update when you quit normally. Choose
+**Check for Updates…** in the app menu to check manually, download an update,
+or choose **Install and Relaunch**. Normal warnings about running processes
+still apply; background updates do not restart the app.
+
+Set `auto-update = check` to check without automatic downloads, or
+`auto-update = off` to turn off background checks. Manual checks remain available.
+See [Nightly updates](releases.md#nightly-updates-without-notarization) for installation
+and update details. Builds without the updater show **View Toastty Releases…**
+instead, which opens [Toastty releases](https://github.com/dar7an/toastty/releases).
+
 Crash reporting is disabled by default in Toastty builds.
 Toastty never installs an update from Ghostty's appcast.
 

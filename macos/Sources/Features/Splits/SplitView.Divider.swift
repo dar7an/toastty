@@ -8,6 +8,8 @@ extension SplitView {
         let invisibleSize: CGFloat
         let color: Color
         @Binding var split: CGFloat
+        @State private var isHovered = false
+        @Environment(\.colorSchemeContrast) private var contrast
 
         private var visibleWidth: CGFloat? {
             switch direction {
@@ -58,11 +60,18 @@ extension SplitView {
                     .frame(width: invisibleWidth, height: invisibleHeight)
                     .contentShape(Rectangle()) // Makes it hit testable for pointerStyle
                 Rectangle()
-                    .fill(color)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(color.opacity(contrast == .increased ? 0.5 : 0.15))
                     .frame(width: visibleWidth, height: visibleHeight)
+                Capsule()
+                    .fill(Color.primary.opacity(contrast == .increased ? 0.85 : (isHovered ? 0.65 : 0.35)))
+                    .frame(width: direction == .horizontal ? 3 : 36,
+                           height: direction == .horizontal ? 36 : 3)
+                    .allowsHitTesting(false)
             }
             .backport.pointerStyle(pointerStyle)
             .onHover { isHovered in
+                self.isHovered = isHovered
                 // macOS 15+ we use the pointerStyle helper which is much less
                 // error-prone versus manual NSCursor push/pop
                 if #available(macOS 15, *) {
@@ -80,6 +89,7 @@ extension SplitView {
                     NSCursor.pop()
                 }
             }
+            .motionAnimation(.easeOut(duration: 0.12), value: isHovered)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(axLabel)
             .accessibilityValue("\(Int(split * 100))%")

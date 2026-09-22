@@ -1,46 +1,70 @@
 import Sparkle
 import Cocoa
 
-/// Toastty's update entry point. The inherited driver remains available for
-/// a future signed update channel, but is never started in preview builds.
-class UpdateController {
-    private(set) var updater: SPUUpdater
-    private let userDriver: UpdateDriver
+/// Only the dedicated nightly app opts into Toastty's signed update channel.
+class UpdateController: NSObject {
+    // Kept for the debug-only update UI simulator. Real updates use Sparkle's
+    // standard dialogs, including the explicit Install and Relaunch choice.
+    let viewModel = UpdateViewModel()
+    private let userDriver = SPUStandardUserDriver(hostBundle: .main, delegate: nil)
+    private var started = false
+    private var startError: Error?
 
-    var viewModel: UpdateViewModel {
-        userDriver.viewModel
+    private(set) lazy var updater = SPUUpdater(
+        hostBundle: .main,
+        applicationBundle: .main,
+        userDriver: userDriver,
+        delegate: self
+    )
+
+    var isEnabled: Bool {
+        Self.isEnabled(bundleIdentifier: Bundle.main.bundleIdentifier, info: Bundle.main.infoDictionary ?? [:])
     }
 
-    /// True if we're installing an update triggered manually.
-    var shouldTerminateWithoutWarning: Bool {
-        viewModel.state.shouldTerminateWithoutWarning
+    static func isEnabled(bundleIdentifier: String?, info: [String: Any]) -> Bool {
+        guard let key = info["SUPublicEDKey"] as? String,
+              Data(base64Encoded: key)?.count == 32,
+              info["SUVerifyUpdateBeforeExtraction"] as? Bool == true,
+              info["SURequireSignedFeed"] as? Bool == true,
+              let feed = info["SUFeedURL"] as? String else { return false }
+
+        switch bundleIdentifier {
+        case "com.dar7an.toastty.nightly":
+            return feed == "https://github.com/dar7an/toastty/releases/download/nightly/appcast.xml"
+        case "com.dar7an.toastty.nightly.test":
+            // A separate, locally packaged app exercises real Sparkle installs
+            // without sharing preferences or feeds with an installed nightly.
+            guard let url = URL(string: feed) else { return false }
+            return url.scheme == "http" && url.host == "127.0.0.1"
+        default:
+            return false
+        }
     }
 
-    /// Initialize a new update controller.
-    init() {
-        let hostBundle = Bundle.main
-        self.userDriver = UpdateDriver(
-            viewModel: .init(),
-            hostBundle: hostBundle)
-        self.updater = SPUUpdater(
-            hostBundle: hostBundle,
-            applicationBundle: hostBundle,
-            userDriver: userDriver,
-            delegate: userDriver
-        )
-    }
-
-    /// Automatic updates remain disabled until Toastty owns a signed appcast.
-    /// This intentionally never starts the updater so release builds don't
-    /// silently poll a nonexistent (or upstream) feed.
     func startUpdater() {
-        // Toastty has no signed appcast yet. Never start the updater.
-        Ghostty.logger.info("automatic updates disabled: no signed appcast configured")
+        guard isEnabled, !started else { return }
+        do {
+            try updater.start()
+            started = true
+            startError = nil
+        } catch {
+            startError = error
+            Ghostty.logger.error("Unable to start Toastty updates: \(error.localizedDescription)")
+        }
     }
 
     func checkForUpdates() {
-        if let url = URL(string: "https://github.com/dar7an/toastty/releases") {
-            NSWorkspace.shared.open(url)
+        guard isEnabled else {
+            if let url = URL(string: "https://github.com/dar7an/toastty/releases") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        startUpdater()
+        if started {
+            updater.checkForUpdates()
+        } else if let startError {
+            NSAlert(error: startError).runModal()
         }
     }
 }

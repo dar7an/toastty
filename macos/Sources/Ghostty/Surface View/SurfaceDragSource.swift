@@ -54,9 +54,7 @@ extension Ghostty {
                 isDragging = dragging
             }
             view.onHoverChanged = { hovering in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isHovering = hovering
-                }
+                isHovering = hovering
             }
             return view
         }
@@ -67,9 +65,7 @@ extension Ghostty {
                 isDragging = dragging
             }
             nsView.onHoverChanged = { hovering in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isHovering = hovering
-                }
+                isHovering = hovering
             }
         }
     }

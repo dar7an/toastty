@@ -16,6 +16,9 @@ struct TerminalProject: Codable, Equatable, Identifiable {
     var selectedTabID: UUID?
     var emoji: String?
     var color: TerminalTabColor
+    /// User-defined sidebar position, independent of the project's tab order.
+    /// Older projects keep their existing order until the first rearrangement.
+    var sidebarOrder: Int?
 
     /// Legacy-compatible display name. Prefer `displayName` in new code.
     var name: String {
@@ -129,6 +132,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         case selectedTabID
         case emoji
         case color
+        case sidebarOrder
     }
 
     init(from decoder: any Decoder) throws {
@@ -146,6 +150,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         }
         selectedTabID = try container.decodeIfPresent(UUID.self, forKey: .selectedTabID)
         emoji = Self.normalizedEmoji(try container.decodeIfPresent(String.self, forKey: .emoji))
+        sidebarOrder = try container.decodeIfPresent(Int.self, forKey: .sidebarOrder)
         // An unknown stored value (e.g. a color added by a newer build) must
         // not fail the whole project's decode: raw enum decoding throws
         // before the nil fallback, so decode the raw value lossily.
@@ -168,6 +173,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         try container.encode(selectedTabID, forKey: .selectedTabID)
         try container.encode(emoji, forKey: .emoji)
         try container.encode(color, forKey: .color)
+        try container.encodeIfPresent(sidebarOrder, forKey: .sidebarOrder)
     }
 }
 
@@ -209,8 +215,37 @@ extension NSWindowTabGroup {
     }
 }
 
+extension NSWindow {
+    private static var standaloneTabSidebarModelKey: UInt8 = 0
+
+    /// Project chrome also exists after AppKit tears a tab out of its group.
+    var projectSidebarModel: TabSidebarModel {
+        tabGroup?.tabSidebarModel ?? standaloneTabSidebarModel
+    }
+
+    var standaloneTabSidebarModel: TabSidebarModel {
+        if let model = objc_getAssociatedObject(
+            self,
+            &Self.standaloneTabSidebarModelKey
+        ) as? TabSidebarModel {
+            return model
+        }
+
+        let model = TabSidebarModel(window: self)
+        objc_setAssociatedObject(
+            self,
+            &Self.standaloneTabSidebarModelKey,
+            model,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        model.refresh()
+        return model
+    }
+}
+
 /// Shared project and tab state for one visible window. Mutated on the main queue.
 final class TabSidebarModel: ObservableObject {
+    /// Prevent project drags from rearranging a different window group.
+    let dragID = UUID()
     static let minWidth: CGFloat = 160
     static let maxWidth: CGFloat = 320
     static let defaultWidth: CGFloat = 220
@@ -229,6 +264,13 @@ final class TabSidebarModel: ObservableObject {
     @Published private(set) var rows: [Row] = []
     @Published private(set) var selection: ObjectIdentifier?
     @Published private(set) var selectedProjectID: UUID?
+    /// Drag feedback must not activate another native tab window and destroy
+    /// the source view. Restore the active project's highlight on drop/cancel.
+    @Published var draggingProjectID: UUID?
+    var highlightedProjectID: UUID? { draggingProjectID ?? selectedProjectID }
+    /// A lifted tab still belongs to this group until its drop commits.
+    /// Hide only its rail cell; cancelling must not reconstruct terminals.
+    @Published var liftedTabID: ObjectIdentifier?
     private var selectedTabs: [UUID: ObjectIdentifier] = [:]
 
     /// Inline rename editor state. Lives on the shared model so an AppKit window
@@ -240,13 +282,72 @@ final class TabSidebarModel: ObservableObject {
     @Published var editingProjectEmojiID: UUID?
     @Published var editingProjectEmojiDraft: String = ""
     private var lastProjectClick: (id: UUID, timestamp: TimeInterval)?
+    private var lastTabClick: (id: ObjectIdentifier, timestamp: TimeInterval)?
+
+    /// Native tab selection swaps hosting views between the two clicks.
+    /// Keep the click history on their shared model, as with project rename.
+    func recordTabClick(_ id: ObjectIdentifier, timestamp: TimeInterval) -> Bool {
+        guard let previous = lastTabClick, previous.id == id,
+              timestamp >= previous.timestamp,
+              timestamp - previous.timestamp <= NSEvent.doubleClickInterval else {
+            lastTabClick = (id, timestamp)
+            return false
+        }
+        lastTabClick = nil
+        return true
+    }
+
+    func cancelTabClick() { lastTabClick = nil }
+    func cancelProjectClick() { lastProjectClick = nil }
 
     var projects: [TerminalProject] {
         var seen = Set<UUID>()
-        return rows.compactMap { seen.insert($0.project.id).inserted ? $0.project : nil }
+        let unique = rows.compactMap { seen.insert($0.project.id).inserted ? $0.project : nil }
+        return unique.enumerated().sorted { lhs, rhs in
+            let left = lhs.element.sidebarOrder ?? Int.max
+            let right = rhs.element.sidebarOrder ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map(\.element)
     }
 
     var visibleTabs: [Row] { rows.filter { $0.project.id == selectedProjectID } }
+    var railTabs: [Row] { visibleTabs.filter { $0.id != liftedTabID } }
+
+    /// Native List movement changes only project metadata. Keeping AppKit's
+    /// windows in place preserves tab order, remembered selection, and shells.
+    func moveProjects(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        var ordered = projects.map(\.id)
+        guard !offsets.isEmpty, offsets.allSatisfy(ordered.indices.contains),
+              (0...ordered.count).contains(destination),
+              editingProjectID == nil, editingProjectEmojiID == nil else { return }
+        let previous = ordered
+        ordered.move(fromOffsets: offsets, toOffset: destination)
+        guard ordered != previous else { return }
+        lastProjectClick = nil
+        let positions = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { ($0.element, $0.offset) })
+        for window in windows {
+            guard let controller = window.windowController as? TerminalController,
+                  let position = positions[controller.project.id],
+                  controller.project.sidebarOrder != position else { continue }
+            // Every member carries the position through window restoration,
+            // tab creation, and closing/reopening a project's selected tab.
+            controller.project.sidebarOrder = position
+        }
+        refreshProjectMetadata()
+    }
+
+    func canMoveProject(_ id: UUID, by offset: Int) -> Bool {
+        let ordered = projects
+        guard editingProjectID == nil, editingProjectEmojiID == nil,
+              let index = ordered.firstIndex(where: { $0.id == id }) else { return false }
+        return ordered.indices.contains(index + offset)
+    }
+
+    func moveProject(_ id: UUID, by offset: Int) {
+        guard canMoveProject(id, by: offset),
+              let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        moveProjects(fromOffsets: IndexSet(integer: index), toOffset: index + offset + (offset > 0 ? 1 : 0))
+    }
 
     /// Selects a project's remembered tab, optionally returning focus to it.
     func selectProject(_ id: UUID?, stealFocus: Bool = true) {
@@ -297,7 +398,7 @@ final class TabSidebarModel: ObservableObject {
         } else {
             trimmed
         }
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             guard let controller = window.windowController as? TerminalController,
                   controller.project.id == id else { continue }
             if newOverride == nil || newOverride == controller.project.automaticName {
@@ -325,12 +426,12 @@ final class TabSidebarModel: ObservableObject {
     /// Opens the emoji editor for a project and makes that project visible.
     /// The draft is kept on the shared model so row rebuilds cannot discard it.
     func beginProjectEmojiEdit(projectID: UUID) {
-        guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        guard projects.contains(where: { $0.id == projectID }) else { return }
         if editingProjectID != nil { commitRename() }
         if editingProjectEmojiID != nil { cancelProjectEmojiEdit() }
         selectProject(projectID)
         editingProjectEmojiID = projectID
-        editingProjectEmojiDraft = project.emoji ?? ""
+        editingProjectEmojiDraft = ""
     }
 
     /// Commits a valid emoji draft. Empty input restores the default folder
@@ -377,6 +478,10 @@ final class TabSidebarModel: ObservableObject {
         }
     }
 
+    func resetProjectEmoji(for projectID: UUID) {
+        updateProject(projectID) { $0.emoji = nil }
+    }
+
     /// Abbreviated directory for a project: the live pwd of its selected
     /// tab's focused surface, else any tab's live pwd, else the fixed
     /// creation directory for projects whose shells have not reported yet.
@@ -405,7 +510,7 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func restoreTerminalFocus() {
-        guard let window = tabGroup?.selectedWindow,
+        guard let window = selectedWindow,
               let controller = window.windowController as? TerminalController else { return }
         window.makeFirstResponder(controller.focusedSurface)
     }
@@ -416,9 +521,8 @@ final class TabSidebarModel: ObservableObject {
         _ projectID: UUID,
         _ update: (inout TerminalProject) -> Void
     ) {
-        guard let tabGroup else { return }
         var changed = false
-        for window in tabGroup.windows {
+        for window in windows {
             guard let controller = window.windowController as? TerminalController,
                   controller.project.id == projectID else { continue }
             var project = controller.project
@@ -428,7 +532,19 @@ final class TabSidebarModel: ObservableObject {
             controller.project = project
             changed = true
         }
-        if changed { refresh() }
+        if changed { refreshProjectMetadata() }
+    }
+
+    /// Metadata edits do not change group membership. Keep the existing
+    /// window and terminal observations instead of rebuilding them all.
+    private func refreshProjectMetadata() {
+        rows = rows.map { row in
+            var row = row
+            if let controller = row.window.windowController as? TerminalController {
+                row.project = controller.project
+            }
+            return row
+        }
     }
 
     /// Source of truth for sidebar visibility and width. New independent
@@ -468,12 +584,13 @@ final class TabSidebarModel: ObservableObject {
     /// Mirrors group sidebar state onto member controllers so undo and state
     /// restoration can capture it as plain data. Plain assignment cannot loop.
     private func mirrorSidebarStateToMembers() {
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             (window.windowController as? TerminalController)?.sidebarState = sidebarState
         }
     }
 
     private weak var tabGroup: NSWindowTabGroup?
+    private weak var standaloneWindow: NSWindow?
     private var groupObservations: [NSKeyValueObservation] = []
     private var titleObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
     private var pwdCancellables: [ObjectIdentifier: AnyCancellable] = [:]
@@ -481,6 +598,7 @@ final class TabSidebarModel: ObservableObject {
 
     init(tabGroup: NSWindowTabGroup) {
         self.tabGroup = tabGroup
+        self.standaloneWindow = nil
 
         // New independent windows start expanded with the saved width.
         let persistedWidth = UserDefaults.ghostty.double(forKey: Self.widthDefaultsKey)
@@ -514,6 +632,18 @@ final class TabSidebarModel: ObservableObject {
         groupObservations = [windows, selected, tabBar]
     }
 
+    init(window: NSWindow) {
+        self.tabGroup = nil
+        self.standaloneWindow = window
+
+        let persistedWidth = UserDefaults.ghostty.double(forKey: Self.widthDefaultsKey)
+        let initialWidth = persistedWidth > 0
+            ? min(Self.maxWidth, max(Self.minWidth, persistedWidth))
+            : Self.defaultWidth
+        self.sidebarState = (window.windowController as? TerminalController)?.sidebarState
+            ?? SidebarState(isVisible: true, expandedWidth: initialWidth)
+    }
+
     deinit {
         groupObservations.forEach { $0.invalidate() }
         invalidateTabObservations()
@@ -524,12 +654,13 @@ final class TabSidebarModel: ObservableObject {
     /// Selects a sidebar row and optionally returns keyboard focus to its terminal.
     func select(_ id: ObjectIdentifier?, stealFocus: Bool = true) {
         guard let id,
-              let tabGroup,
               let row = rows.first(where: { $0.id == id }),
-              tabGroup.windows.contains(row.window) else { return }
+              windows.contains(row.window) else { return }
 
-        if tabGroup.selectedWindow != row.window {
+        if let tabGroup, tabGroup.selectedWindow != row.window {
             tabGroup.selectedWindow = row.window
+        } else if tabGroup == nil {
+            row.window.makeKey()
         }
         syncSelection()
 
@@ -552,12 +683,11 @@ final class TabSidebarModel: ObservableObject {
     // MARK: Private
 
     private func rebuildRows() {
-        guard let tabGroup else { return }
         invalidateTabObservations()
 
         // Old saved windows have no project identity. Keep their restored native
         // group together as AppKit assembles it over successive runloop turns.
-        let controllers = tabGroup.windows.compactMap { $0.windowController as? TerminalController }
+        let controllers = windows.compactMap { $0.windowController as? TerminalController }
         if let legacyProject = controllers.first(where: { $0.projectNeedsMigration })?.project {
             for controller in controllers where controller.projectNeedsMigration && controller.project.id != legacyProject.id {
                 controller.project = legacyProject
@@ -582,7 +712,7 @@ final class TabSidebarModel: ObservableObject {
             }
         }
 
-        rows = tabGroup.windows.map { window in
+        rows = windows.map { window in
             observe(window: window)
             let pwd = (window.windowController as? TerminalController)?.focusedSurface?.pwd
             return Row(
@@ -664,7 +794,7 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func syncSelection() {
-        selection = tabGroup?.selectedWindow.map { ObjectIdentifier($0) }
+        selection = selectedWindow.map { ObjectIdentifier($0) }
         if let row = rows.first(where: { $0.id == selection }) {
             selectedProjectID = row.project.id
             selectedTabs[row.project.id] = row.id
@@ -680,9 +810,18 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func suppressNativeTabBar() {
-        for window in tabGroup?.windows ?? [] {
+        for window in windows {
             (window as? TerminalWindow)?.hideProjectNativeTabBar()
         }
+    }
+
+    private var windows: [NSWindow] {
+        if let tabGroup { return tabGroup.windows }
+        return standaloneWindow.map { [$0] } ?? []
+    }
+
+    private var selectedWindow: NSWindow? {
+        tabGroup?.selectedWindow ?? standaloneWindow
     }
 
     private func invalidateTabObservations() {
@@ -707,45 +846,56 @@ struct ProjectSidebarListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
+            List(selection: Binding(get: { model.highlightedProjectID }, set: {
+                guard model.draggingProjectID == nil else { return }
+                model.selectProject($0)
+            })) {
                 ForEach(model.projects) { project in
                     projectRow(project)
                         .tag(project.id)
+                        .overlay(ProjectSidebarRowInteraction(
+                            model: model, projectID: project.id,
+                            isEditing: model.editingProjectID != nil || model.editingProjectEmojiID != nil))
                         .help(projectHelp(project))
                         .accessibilityLabel(projectAccessibilityLabel(project))
                         .background(ProjectSidebarContextMenu {
                             makeProjectContextMenu(project: project, model: model)
                         })
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { projectController(project)?.closeProject() } label: {
+                                Image(systemName: "trash")
+                            }
+                            .accessibilityLabel("Delete Project")
+                            .help("Remove this project from Toastty")
+                        }
                         .accessibilityActions {
                             Button("Rename Project") { model.beginRename(projectID: project.id) }
                             Button("Change Emoji") { model.beginProjectEmojiEdit(projectID: project.id) }
+                            Button("Reset Emoji") { model.resetProjectEmoji(for: project.id) }
                             Button("Reset Project Appearance") { model.resetProjectAppearance(for: project.id) }
+                            if model.canMoveProject(project.id, by: -1) {
+                                Button("Move Project Up") { model.moveProject(project.id, by: -1) }
+                            }
+                            if model.canMoveProject(project.id, by: 1) {
+                                Button("Move Project Down") { model.moveProject(project.id, by: 1) }
+                            }
                             ForEach(TerminalTabColor.allCases, id: \.rawValue) { color in
                                 Button("Project Color: \(color.localizedName)") {
                                     model.setProjectColor(color, for: project.id)
                                 }
                             }
-                            Button("Close Project") { projectController(project)?.closeProject() }
-                        }
-                        .popover(
-                            isPresented: Binding(
-                                get: {
-                                    model.editingProjectEmojiID == project.id
-                                        && controller.window.map(ObjectIdentifier.init) == model.selection
-                                },
-                                set: { presented in
-                                    if !presented { model.cancelProjectEmojiEdit() }
-                                }
-                            ),
-                            arrowEdge: .leading
-                        ) {
-                            ProjectEmojiEditor(model: model, projectID: project.id)
+                            Button("Delete Project") { projectController(project)?.closeProject() }
                         }
                 }
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
             .padding(.top, 8)
+            .onDeleteCommand {
+                if let project = model.projects.first(where: { $0.id == model.selectedProjectID }) {
+                    projectController(project)?.closeProject()
+                }
+            }
             .contextMenu {
                 Button("New Project") { controller.newProject(nil) }
             }
@@ -769,48 +919,46 @@ struct ProjectSidebarListView: View {
         private func projectRow(_ project: TerminalProject) -> some View {
             HStack(spacing: 8) {
                 ProjectSidebarIconView(project: project)
-                // Only the visible window owns the editor and its focus.
-                // Hidden tabs share this model but must not create competing
-                // focused fields or commit the draft when they lose focus.
-                Group {
-                    if model.editingProjectID == project.id,
-                       controller.window.map(ObjectIdentifier.init) == model.selection {
-                        ProjectRenameField(model: model, projectID: project.id)
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
+                    .background(ProjectEmojiPicker(
+                        isPresented: model.editingProjectEmojiID == project.id &&
+                            controller.window.map(ObjectIdentifier.init) == model.selection,
+                        onSelect: { emoji in
+                            guard model.editingProjectEmojiID == project.id else { return }
+                            model.editingProjectEmojiDraft = emoji
+                            model.commitProjectEmojiEdit()
+                        },
+                        onCancel: {
+                            guard model.editingProjectEmojiID == project.id else { return }
+                            model.cancelProjectEmojiEdit()
+                        }))
+                VStack(alignment: .leading, spacing: 4) {
+                    // Reserve the editor's height even when showing the label.
+                    // Keep the directory visible throughout rename.
+                    Group {
+                        if model.editingProjectID == project.id,
+                           controller.window.map(ObjectIdentifier.init) == model.selection {
+                            ProjectRenameField(model: model, projectID: project.id)
+                        } else {
                             Text(projectDisplayName(project))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                            if let directory = model.directory(for: project) {
-                                Text(directory)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
                         }
                     }
+                    .frame(height: 22, alignment: .leading)
+                    if let directory = model.directory(for: project) {
+                        Text(directory)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
-                // Reserve the indicator gutter in every state so adding a
-                // project color never changes text width or truncation.
-                .padding(.trailing, 14)
+                Spacer(minLength: 4)
             }
-            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.vertical, 6)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
-            .onTapGesture {
-                model.clickProject(project.id)
-            }
-            .overlay(alignment: .trailing) {
-                if let displayColor = project.color.displayColor {
-                    Circle()
-                        .fill(Color(nsColor: displayColor))
-                        .frame(width: 6, height: 6)
-                        .padding(.trailing, 4)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
         }
 
         private func projectHelp(_ project: TerminalProject) -> String {
@@ -846,90 +994,17 @@ struct ProjectSidebarListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     } else {
-                        Image(systemName: "folder")
-                            .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                        if #available(macOS 14.0, *) {
+                            ProjectSidebarFolderIcon(color: project.color)
+                        } else {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.primary)
+                        }
                     }
                 }
                 .frame(width: 20, height: 20, alignment: .center)
                 .accessibilityHidden(true)
-            }
-        }
-
-        private struct ProjectEmojiEditor: View {
-            @ObservedObject var model: TabSidebarModel
-            let projectID: UUID
-            @FocusState private var focused: Bool
-
-            private var trimmedDraft: String {
-                model.editingProjectEmojiDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-
-            private var isValidDraft: Bool {
-                trimmedDraft.isEmpty || TerminalProject.normalizedEmoji(trimmedDraft) != nil
-            }
-
-            var body: some View {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Project Icon")
-                        .font(.headline)
-
-                    HStack(spacing: 8) {
-                        Text("Emoji")
-                        TextField("Emoji", text: $model.editingProjectEmojiDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
-                            .frame(width: 40)
-                            .focused($focused)
-                            .accessibilityLabel("Project emoji")
-                            .onSubmit { model.commitProjectEmojiEdit() }
-                            .onExitCommand { model.cancelProjectEmojiEdit() }
-
-                        Button("Choose Emoji…") {
-                            focused = true
-                            DispatchQueue.main.async {
-                                guard model.editingProjectEmojiID == projectID else { return }
-                                NSApp.orderFrontCharacterPalette(nil)
-                            }
-                        }
-                        .help("Open the macOS Character Viewer")
-                    }
-
-                    if !isValidDraft {
-                        Text("Choose one emoji, or leave it empty for the folder icon.")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button("Use Default") {
-                            model.editingProjectEmojiDraft = ""
-                        }
-                        .help("Use the default folder icon")
-
-                        Spacer(minLength: 8)
-
-                        Button("Cancel") { model.cancelProjectEmojiEdit() }
-                            .keyboardShortcut(.cancelAction)
-                        Button("Done") { model.commitProjectEmojiEdit() }
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(!isValidDraft)
-                    }
-                }
-                .padding(16)
-                .frame(width: 280)
-                .onAppear {
-                    DispatchQueue.main.async {
-                        guard model.editingProjectEmojiID == projectID else { return }
-                        focused = true
-                        DispatchQueue.main.async {
-                            guard model.editingProjectEmojiID == projectID else { return }
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
-                        }
-                    }
-                }
             }
         }
 

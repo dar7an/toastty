@@ -392,12 +392,6 @@ class AppDelegate: NSObject,
         let windows = NSApplication.shared.windows
         if windows.isEmpty { return .terminateNow }
 
-        // If we've already accepted to install an update, then we don't need to
-        // confirm quit. The user is already expecting the update to happen.
-        if updateController.shouldTerminateWithoutWarning {
-            return .terminateNow
-        }
-
         // If the user is shutting down, restarting, or logging out, we don't confirm quit.
         why: if let event = NSAppleEventManager.shared().currentAppleEvent {
             // If all Ghostty windows are in the background (i.e. you Cmd-Q from the Cmd-Tab
@@ -780,30 +774,15 @@ class AppDelegate: NSObject,
         default: UserDefaults.ghostty.removeObject(forKey: "NSQuitAlwaysKeepsWindows")
         }
 
-        // Sync our auto-update settings. If SUEnableAutomaticChecks (in our Info.plist) is
-        // explicitly false (NO), auto-updates are disabled. Otherwise, we use the behavior
-        // defined by our "auto-update" configuration (if set) or fall back to Sparkle
-        // user-based defaults.
-        //
-        // NOTE: Toastty has no signed appcast yet, so startUpdater() never starts
-        // the updater. These flags are stored for a future feed and have no effect.
-        Ghostty.logger.info("skipping auto-update sync: no signed appcast configured")
-        if Bundle.main.infoDictionary?["SUEnableAutomaticChecks"] as? Bool == false {
+        // Nightly defaults live in the bundle; explicit user config takes priority.
+        // Other build identities never start Sparkle or poll the nightly feed.
+        if !updateController.isEnabled {
             updateController.updater.automaticallyChecksForUpdates = false
             updateController.updater.automaticallyDownloadsUpdates = false
         } else if let autoUpdate = config.autoUpdate {
             updateController.updater.automaticallyChecksForUpdates =
                 autoUpdate == .check || autoUpdate == .download
-            updateController.updater.automaticallyDownloadsUpdates =
-                autoUpdate == .download
-            /*
-             To test `auto-update` easily, uncomment the line below and
-             delete `SUEnableAutomaticChecks` in Ghostty-Info.plist.
-
-             Note: When `auto-update = download`, you may need to
-             `Clean Build Folder` if a background install has already begun.
-             */
-            // updateController.updater.checkForUpdatesInBackground()
+            updateController.updater.automaticallyDownloadsUpdates = autoUpdate == .download
         }
 
         // Config could change keybindings, so update everything that depends on that
@@ -1330,6 +1309,10 @@ extension AppDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(checkForUpdates(_:)):
+            item.title = updateController.isEnabled ? "Check for Updates…" : "View Toastty Releases…"
+            return !updateController.isEnabled || updateController.updater.canCheckForUpdates
+
         case #selector(changeAppearance(_:)):
             item.state = (item.representedObject as? String) == ToasttyAppearance.saved?.rawValue ? .on : .off
             return true

@@ -606,6 +606,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     (window.contentView as? TerminalViewContainer)?
                         .projectSplitViewController?.bind(to: model, animated: false)
                 }
+                if let focusedSurface = controller.focusedSurface {
+                    window.makeFirstResponder(focusedSurface)
+                }
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is
                 // set while `-[NSWindowController showWindow:]` is called, but we're
@@ -620,6 +623,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // We don't need to dispatch this because `tabbingMode = .disallowed`
         // for HiddenTitlebarTerminalWindow.
         controller.showWindowSafely(self)
+        if let focusedSurface = controller.focusedSurface {
+            window.makeFirstResponder(focusedSurface)
+        }
 
         // Windows with `macos-titlebar-style = hidden` create new windows when the
         // new tab binding is pressed, we should cascade those windows as well.
@@ -1540,7 +1546,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard project.directory == nil, project.nameOverride == nil else { return }
         guard let pwd = focusedSurface?.pwd, Self.isPlausibleProjectDirectory(pwd) else { return }
         project.directory = pwd
-        window?.tabGroup?.tabSidebarModel.refresh()
+        window?.projectSidebarModel.refresh()
     }
 
     /// Create a new project seeded from the active terminal's directory.
@@ -1587,9 +1593,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// call working for other workstreams.
     func promptProjectName(rename: Bool = false) {
         guard let window else { return }
-        if rename, usesProjectSidebar, window.tabGroup != nil {
-            window.tabGroup?.tabSidebarModel.selectProject(project.id)
-            window.tabGroup?.tabSidebarModel.beginRename(projectID: project.id)
+        if rename, usesProjectSidebar {
+            window.projectSidebarModel.selectProject(project.id)
+            window.projectSidebarModel.beginRename(projectID: project.id)
             return
         }
         if !rename {
@@ -1613,7 +1619,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 guard let controller = tab.windowController as? TerminalController else { continue }
                 controller.project.nameOverride = (name.isEmpty || name == controller.project.automaticName) ? nil : name
             }
-            window.tabGroup?.tabSidebarModel.refresh()
+            window.projectSidebarModel.refresh()
         }
     }
 
@@ -1631,12 +1637,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
             controllers.forEach { $0.closeTabImmediately() }
-            self.undoManager?.setActionName("Close Project")
+            self.undoManager?.setActionName("Delete Project")
             self.undoManager?.endUndoGrouping()
         }
         if controllers.contains(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }) {
-            confirmClose(messageText: "Close Project?",
-                         informativeText: "Running processes in this project's tabs will be stopped.",
+            confirmClose(messageText: "Delete Project?",
+                         informativeText: "This removes the project from Toastty and stops its running terminals. Files in its folder are kept.",
+                         confirmButtonTitle: "Delete Project",
                          completion: close)
         } else {
             close()
@@ -1648,8 +1655,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// group follows; the split controller observes the model and animates
     /// (skipped under Reduce Motion). Also wired to View > Show/Hide Sidebar.
     @IBAction func toggleProjectSidebar(_ sender: Any?) {
-        guard usesProjectSidebar, let window, let tabGroup = window.tabGroup else { return }
-        let model = tabGroup.tabSidebarModel
+        guard usesProjectSidebar, let window else { return }
+        let model = window.projectSidebarModel
         model.setVisible(!model.sidebarState.isVisible)
     }
 
@@ -2104,7 +2111,7 @@ extension TerminalController {
 
         case #selector(toggleProjectSidebar):
             guard usesProjectSidebar else { return false }
-            if let visible = window?.tabGroup?.tabSidebarModel.sidebarState.isVisible {
+            if let visible = window?.projectSidebarModel.sidebarState.isVisible {
                 item.title = visible ? "Hide Sidebar" : "Show Sidebar"
             } else {
                 item.title = "Hide Sidebar"
@@ -2188,9 +2195,7 @@ extension TerminalController {
             ?? (ghostty.config.macosTabsSidebar && ghostty.config.macosTitlebarStyle != .hidden)
         guard enabled else { return 0 }
 
-        // Accessing `window.tabGroup` materializes the window's tab group,
-        // which the sidebar requires anyway when it is enabled.
-        guard let model = window?.tabGroup?.tabSidebarModel else {
+        guard let model = window?.projectSidebarModel else {
             return TabSidebarModel.defaultWidth
         }
         guard model.sidebarState.isVisible else { return 0 }

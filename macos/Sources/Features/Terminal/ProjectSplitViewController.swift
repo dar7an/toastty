@@ -120,7 +120,7 @@ final class ProjectSplitViewController: NSSplitViewController {
     private func recordSidebarMeasurement() {
         guard didApplyInitialLayout, !isSyncing, !suppressObservation,
               let model, let window = terminalController?.window,
-              window.tabGroup?.selectedWindow === window else { return }
+              (window.tabGroup?.selectedWindow ?? window) === window else { return }
         let collapsed = sidebarSplitItem.isCollapsed
         if collapsed != !model.sidebarState.isVisible {
             model.setVisible(!collapsed)
@@ -167,7 +167,7 @@ final class ProjectSplitViewController: NSSplitViewController {
                 .id(ObjectIdentifier(model)))
         toolbarDelegate?.updateTabStripModel(model)
         modelCancellable = model.$sidebarState
-            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
             .sink { [weak self] state in
                 guard let self else { return }
                 self.terminalController?.sidebarState = state
@@ -195,7 +195,9 @@ final class ProjectSplitViewController: NSSplitViewController {
                     .sink { [weak self, weak window] _ in
                         guard let self, let window,
                               self.terminalController?.window === window else { return }
-                        self.bind(to: window.tabGroup?.tabSidebarModel, animated: false)
+                        self.bind(
+                            to: window.projectSidebarModel,
+                            animated: false)
                     }
             }
     }
@@ -210,6 +212,7 @@ final class ProjectSplitViewController: NSSplitViewController {
             return
         }
         let targetCollapsed = !state.isVisible
+        let visibilityChanged = sidebarSplitItem.isCollapsed != targetCollapsed
         let currentWidth = sidebarColumnWidth
         let widthSettled = targetCollapsed
             || abs(currentWidth - state.expandedWidth) < 0.5
@@ -223,17 +226,25 @@ final class ProjectSplitViewController: NSSplitViewController {
         isSyncing = true
         suppressObservation = true
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let animate = animated && !reduceMotion
+        // Hidden native tabs share the model. Animating all of them causes
+        // every terminal to relayout on every animation frame. Width changes
+        // during a divider drag also need to follow the pointer immediately.
+        let window = terminalController?.window
+        let isSelectedWindow = window.map { ($0.tabGroup?.selectedWindow ?? $0) === $0 } ?? false
+        let animate = animated && visibilityChanged && !reduceMotion
+            && window?.isVisible == true && isSelectedWindow
         if animate {
-            NSAnimationContext.runAnimationGroup { [self] _ in
-                if state.isVisible {
-                    sidebarSplitItem.animator().isCollapsed = false
-                    splitView.animator().setPosition(state.expandedWidth, ofDividerAt: 0)
-                } else {
-                    sidebarSplitItem.animator().isCollapsed = true
-                }
+            NSAnimationContext.runAnimationGroup { [self] context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // One native animator owns the transition. A second animated
+                // divider position competes with AppKit's width restoration.
+                sidebarSplitItem.animator().isCollapsed = targetCollapsed
             } completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == generation else { return }
+                if state.isVisible, abs(self.sidebarColumnWidth - state.expandedWidth) >= 0.5 {
+                    self.splitView.setPosition(state.expandedWidth, ofDividerAt: 0)
+                }
                 self.isSyncing = false
                 self.suppressObservation = false
             }
@@ -249,9 +260,8 @@ final class ProjectSplitViewController: NSSplitViewController {
         }
     }
 
-    /// Standard responder-chain target for the toolbar's `.toggleSidebar`
-    /// item. Funnels through the shared model so every window in the group
-    /// stays in sync (unlike the default item behavior).
+    /// Toolbar target that funnels through the shared model so every window in
+    /// the group stays in sync.
     override func toggleSidebar(_ sender: Any?) {
         terminalController?.toggleProjectSidebar(sender)
     }
@@ -260,8 +270,8 @@ final class ProjectSplitViewController: NSSplitViewController {
 /// Builds the single native toolbar row for one project window:
 /// `[traffic lights sidebar toggle] | [project tabs …][+]`.
 ///
-/// - The toggle uses the standard `.toggleSidebar` slot; its action travels
-///   the responder chain to `ProjectSplitViewController.toggleSidebar`.
+/// - The toggle is a native circular button targeting
+///   `ProjectSplitViewController.toggleSidebar`.
 /// - The separator is an `NSTrackingSeparatorToolbarItem` bound to divider 0,
 ///   so it follows the sidebar divider with constraints, never
 ///   screen-coordinate offsets.
@@ -269,13 +279,14 @@ final class ProjectSplitViewController: NSSplitViewController {
 ///   borderless item (`isBordered = false`); overflow scrolls inside the
 ///   strip while the toggle and strip keep high visibility priority at
 ///   minimum window widths.
-/// - New Tab is a separate native, bordered toolbar item so its sizing and
-///   glass bezel follow the same AppKit metrics as Toggle Sidebar.
+/// - New Tab is a separate native, bordered toolbar item so AppKit owns its
+///   sizing and glass bezel.
 ///
 /// Toolbar identity is window-specific: each window gets its own delegate
 /// instance (retained by its split controller) with autosave disabled, so
 /// configuration never propagates to unrelated windows.
 final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
+    static let sidebarToggleItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.sidebarToggle")
     static let tabStripItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.projectTabStrip")
     static let newTabItemIdentifier = NSToolbarItem.Identifier("com.dar7an.toastty.newTab")
 
@@ -299,11 +310,17 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
+        [
+            .flexibleSpace,
+            Self.sidebarToggleItemIdentifier,
+            .sidebarTrackingSeparator,
+            Self.tabStripItemIdentifier,
+            Self.newTabItemIdentifier,
+        ]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.tabStripItemIdentifier, Self.newTabItemIdentifier]
+        toolbarAllowedItemIdentifiers(toolbar)
     }
 
     /// Creates the project toolbar items used for sidebar and tab controls.
@@ -313,8 +330,18 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .toggleSidebar:
+        case Self.sidebarToggleItemIdentifier:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Toggle Sidebar"
+            item.paletteLabel = "Toggle Sidebar"
+            item.toolTip = "Toggle Sidebar"
+            item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar")
+            item.target = splitController
+            item.action = #selector(ProjectSplitViewController.toggleSidebar(_:))
+            // Let AppKit draw the same circular toolbar bezel as New Tab.
+            // Nesting a circular NSButton in a bordered toolbar item produces
+            // a second, vertically stretched bezel on macOS 27.
+            item.isBordered = true
             item.visibilityPriority = .high
             return item
         case .sidebarTrackingSeparator:
@@ -361,7 +388,6 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Project Tabs"
             item.paletteLabel = "Project Tabs"
-            item.toolTip = "Project tabs"
             item.view = hosting
             item.autovalidates = false
             item.isEnabled = true

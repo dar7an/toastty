@@ -1,0 +1,66 @@
+name: Toastty nightly
+on:
+  workflow_run:
+    workflows: ["Toastty macOS"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: toastty-${{ github.workflow }}
+  cancel-in-progress: false
+env:
+  NIGHTLY_BUILD: ${{ github.run_number }}.${{ github.run_attempt }}
+  NIGHTLY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+jobs:
+  nightly:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Require successful main CI for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$NIGHTLY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          passed="$(gh run list --workflow ci.yml --branch main --event push \
+            --commit "$NIGHTLY_SHA" --status success --limit 1 --json headSha --jq 'length')"
+          [[ "$passed" == 1 ]] || { echo 'This commit has no successful main CI run.' >&2; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.NIGHTLY_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate upstream and toolchain pins
+        id: upstream
+        run: python3 scripts/upstream.py check --verify-history --github-output "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ steps.upstream.outputs.zig-version }}
+      - name: Install macOS development tools
+        run: brew install nushell swiftlint
+      - name: Require Toastty update signing key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: test -n "$SPARKLE_PRIVATE_KEY"
+      - name: Build isolated ad-hoc nightly
+        run: |
+          set -euo pipefail
+          zig build -Demit-macos-app=false -Doptimize=ReleaseFast
+          macos/build.nu --configuration ReleaseLocal
+          python3 scripts/package-nightly.py --build "$NIGHTLY_BUILD" --commit "$NIGHTLY_SHA"
+          "macos/build/Nightly/Toastty Nightly.app/Contents/MacOS/toastty" --version
+      - name: Sign and publish nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: scripts/publish-nightly.sh

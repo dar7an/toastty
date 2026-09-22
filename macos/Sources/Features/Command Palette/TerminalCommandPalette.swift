@@ -97,7 +97,7 @@ struct TerminalCommandPaletteView: View {
     }
 
     /// Commands for installing or canceling available updates.
-    /// Disabled in release builds until Toastty owns a signed update feed.
+    /// Debug-only simulator controls; nightlies use Sparkle’s standard dialogs.
     private var updateOptions: [CommandOption] {
         #if DEBUG
         var options: [CommandOption] = []

@@ -3,38 +3,79 @@ import Testing
 @testable import Ghostty
 
 struct ProjectTabStripTests {
+    @MainActor
+    @Test func hoverPreviewStaysOnScreenAtRailEdges() {
+        let screen = NSRect(x: -1440, y: 20, width: 1440, height: 900)
+        for x: CGFloat in [-1430, -750, -10] {
+            let anchor = NSRect(x: x, y: 860, width: 54, height: 28)
+            let frame = ProjectTabHoverPreview.frame(size: NSSize(width: 300, height: 240),
+                                                    below: anchor, on: screen)
+            #expect(screen.contains(frame))
+            #expect(frame.maxY == anchor.minY - 8)
+        }
+    }
+
+    @Test func tabWindowMorphCanReverseWithoutJumping() {
+        var morph = ProjectTabDragMorph()
+        morph.advance(by: 0.06, reduceMotion: false)
+        #expect(morph.value > 0 && morph.value < 1)
+        let position = morph.value
+        let velocity = morph.velocity
+        morph.target = 0
+        #expect(morph.value == position)
+        #expect(morph.velocity == velocity)
+        for _ in 0..<60 { morph.advance(by: 1 / 60, reduceMotion: false) }
+        #expect(morph.value == 0)
+        #expect(morph.isSettled)
+        morph.target = 1
+        morph.advance(by: 0, reduceMotion: true)
+        #expect(morph.value == 1)
+        #expect(morph.isSettled)
+    }
+
     @Test func singleTabFillsRail() {
-        // (800 - 6) / 1 floors to the full interior width.
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 1) == 794)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 1,
+            selectedIndex: 0) == [796])
     }
 
-    @Test func fewTabsShareRailEqually() {
-        // (800 - 6) / 4 = 198.5 floors to 198 per cell.
-        let width = ProjectTabStripView.cellWidth(available: 800, count: 4)
-        #expect(width == 198)
-        // Cells plus rail padding fit without scrolling.
-        #expect(width * 4 + ProjectTabStripView.capsulePadding <= 800)
+    @Test(arguments: [2, 4, 10, 20])
+    func switchingTabsNeverChangesCellWidths(count: Int) {
+        let baseline = ProjectTabStripView.cellWidths(available: 800, count: count, selectedIndex: nil)
+        for selection in 0..<count {
+            #expect(ProjectTabStripView.cellWidths(
+                available: 800, count: count, selectedIndex: selection) == baseline)
+        }
+        #expect(Set(baseline).count == 1)
+        #expect(baseline.allSatisfy { $0 >= ProjectTabStripView.minimumCellWidth })
     }
 
-    @Test func manyTabsOverflowAtMinimumWidth() {
-        // (800 - 6) / 20 = 39.7 would be unusable, so cells clamp to the
-        // minimum and the rail scrolls instead.
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 20) == 96)
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 20) == ProjectTabStripView.minCellWidth)
-    }
-
-    @Test func fillOverflowBoundary() {
-        // (390 - 6) / 4 is exactly the 96pt minimum: still filling.
-        #expect(ProjectTabStripView.cellWidth(available: 390, count: 4) == 96)
-        // One point narrower overflows, but the width never drops below min.
-        #expect(ProjectTabStripView.cellWidth(available: 389, count: 4) == 96)
-        #expect(ProjectTabStripView.cellWidth(available: 200, count: 4) == ProjectTabStripView.minCellWidth)
+    @Test func tabsFillAvailableSpaceThenScrollWithReadableTitles() {
+        let normal = ProjectTabStripView.cellWidths(available: 800, count: 4, selectedIndex: 1)
+        #expect(normal == [199, 199, 199, 199])
+        #expect(normal.reduce(0, +) + ProjectTabStripView.railPadding == 800)
+        let crowded = ProjectTabStripView.cellWidths(available: 700, count: 10, selectedIndex: 4)
+        #expect(crowded == Array(repeating: 120, count: 10))
+        #expect(crowded.reduce(0, +) > 700)
     }
 
     @Test func degenerateInputsStayAtMinimum() {
-        #expect(ProjectTabStripView.cellWidth(available: 800, count: 0) == ProjectTabStripView.minCellWidth)
-        #expect(ProjectTabStripView.cellWidth(available: 0, count: 4) == ProjectTabStripView.minCellWidth)
-        #expect(ProjectTabStripView.cellWidth(available: -50, count: 2) == ProjectTabStripView.minCellWidth)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 800,
+            count: 0,
+            selectedIndex: nil).isEmpty)
+        #expect(ProjectTabStripView.cellWidths(
+            available: 0,
+            count: 1,
+            selectedIndex: 0) == [ProjectTabStripView.minimumCellWidth])
+        #expect(ProjectTabStripView.cellWidths(
+            available: -50,
+            count: 2,
+            selectedIndex: nil) == [
+                ProjectTabStripView.minimumCellWidth,
+                ProjectTabStripView.minimumCellWidth,
+            ])
     }
 
     @Test func dropCompletesAfterLatePayloadLoad() async {

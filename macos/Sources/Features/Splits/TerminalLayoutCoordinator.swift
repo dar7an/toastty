@@ -180,17 +180,65 @@ final class TerminalLayoutCoordinator {
         }
     }
 
-    /// Shared validation for rail previews and commits. Project identity and
-    /// native tab-group membership must both match before showing a move.
+    /// Reorder within a project or move the live tab into another window's
+    /// displayed project. AppKit transports the window without rebuilding its
+    /// terminal surfaces; the destination owns the sidebar and project identity.
+    @discardableResult
+    func insertTab(_ tabID: UUID, beside anchor: NSWindow, after: Bool) -> Bool {
+        guard canDropInTabBar(.tab(tabID), beside: anchor),
+              let source = controller(forTabID: tabID), let window = source.window,
+              let destination = anchor.windowController as? TerminalController,
+              let targetIndex = destination.projectTabWindows.firstIndex(of: anchor) else { return false }
+        if window.tabGroup === anchor.tabGroup,
+           let sourceIndex = destination.projectTabWindows.firstIndex(of: window) {
+            let insertion = targetIndex + (after ? 1 : 0)
+            reorderTab(tabID, toProjectIndex: insertion - (sourceIndex < insertion ? 1 : 0))
+            return true
+        }
+
+        let previousModel = window.projectSidebarModel
+        let previousProject = source.project
+        let sidebarState = anchor.projectSidebarModel.sidebarState
+        source.project = destination.project.withSelectedTab(tabID)
+        guard anchor.addTabbedWindowSafely(window, ordered: after ? .above : .below) else {
+            source.project = previousProject
+            previousModel.refresh()
+            return false
+        }
+        let model = anchor.projectSidebarModel
+        model.refresh()
+        model.setVisible(sidebarState.isVisible)
+        (window.contentView as? TerminalViewContainer)?.projectSplitViewController?.bind(to: model, animated: false)
+        window.tabGroup?.selectedWindow = window
+        window.makeKeyAndOrderFront(nil)
+        previousModel.refresh()
+        refreshTabModels(for: window)
+        window.makeFirstResponder(source.focusedSurface)
+        // Rebinding the sidebar rebuilds its native list on the next turn.
+        // Restore terminal input after that layout, provided the user has not
+        // selected another tab in the meantime.
+        DispatchQueue.main.async { [weak window, weak source] in
+            guard let window, let source, window.tabGroup?.selectedWindow === window else { return }
+            window.makeFirstResponder(source.focusedSurface)
+        }
+        return true
+    }
+
+    /// Whole tabs may join another project window. Pane extraction retains
+    /// its existing same-project/group rules.
     func canDropInTabBar(_ payload: TerminalLayoutDragPayload?, beside window: NSWindow) -> Bool {
         guard let payload, let source = resolveSource(payload),
               let target = window.windowController as? TerminalController,
               let sourceWindow = source.controller.window,
-              sourceWindow.tabGroup != nil, sourceWindow.tabGroup === window.tabGroup,
-              projectsMatch(source.controller, target) else { return false }
+              !target.isWindowClosed, window.attachedSheet == nil,
+              sourceWindow.attachedSheet == nil else { return false }
         switch payload {
-        case .tab: return sourceWindow !== window
-        case .surface: return source.controller.surfaceTree.isSplit
+        case .tab:
+            return sourceWindow !== window && target.usesProjectSidebar &&
+                source.tabController?.usesProjectSidebar == true
+        case .surface:
+            return sourceWindow.tabGroup != nil && sourceWindow.tabGroup === window.tabGroup &&
+                projectsMatch(source.controller, target) && source.controller.surfaceTree.isSplit
         }
     }
 
@@ -673,7 +721,7 @@ final class TerminalLayoutCoordinator {
 
     private func refreshTabModels(for window: NSWindow?) {
         guard let window else { return }
-        window.tabGroup?.tabSidebarModel.refresh()
+        window.projectSidebarModel.refresh()
         if let controller = window.windowController as? TerminalController {
             controller.relabelTabs()
         }
@@ -692,6 +740,7 @@ final class TerminalLayoutCoordinator {
         let clampedIndex = max(0, min(targetIndex, windows.count - 1))
         guard clampedIndex != currentIndex else { return }
         let targetWindow = windows[clampedIndex]
+        let selectedWindow = tabGroup.selectedWindow
 
         NSAnimationContext.beginGrouping()
         NSAnimationContext.current.duration = 0
@@ -699,7 +748,7 @@ final class TerminalLayoutCoordinator {
         targetWindow.addTabbedWindowSafely(
             window,
             ordered: clampedIndex < currentIndex ? .below : .above)
-        window.makeKey()
+        (selectedWindow ?? window).makeKey()
         NSAnimationContext.endGrouping()
     }
     private func projectsMatch(

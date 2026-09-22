@@ -6,7 +6,8 @@ case "$configuration" in Debug|ReleaseLocal) ;; *) echo 'Use Debug or ReleaseLoc
 for tool in zig nu swiftlint xcodebuild python3; do
   command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
 done
-[[ "$(zig version)" == "0.16.0" ]] || { echo 'Toastty requires Zig 0.16.0.' >&2; exit 1; }
+required_zig="$(python3 scripts/upstream.py zig-version)"
+[[ "$(zig version)" == "$required_zig" ]] || { echo "Toastty requires Zig $required_zig." >&2; exit 1; }
 zig build -Demit-macos-app=false -Doptimize=ReleaseFast
 macos/build.nu --configuration "$configuration"
 echo "Built macos/build/$configuration/Toastty.app"
