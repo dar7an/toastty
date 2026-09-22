@@ -10,6 +10,36 @@ import XCTest
 /// CI.
 final class ProjectTabChromeRenderingTests: XCTestCase {
     @MainActor
+    func testProjectDragPreviewKeepsHighlightedTextReadableInBothAppearances() throws {
+        for dark in [false, true] {
+            let appearance = try XCTUnwrap(NSAppearance(named: dark ? .darkAqua : .aqua))
+            let image = try XCTUnwrap(ProjectSidebarDragPreview.image(
+                project: TerminalProject(name: "Dragged project"), directory: "~/Projects/Toastty",
+                size: NSSize(width: 220, height: 60), appearance: appearance))
+            let bitmap = try XCTUnwrap(image.representations.first as? NSBitmapImageRep)
+            // Check the actual bitmap, not just SwiftUI's requested colors.
+            // Vibrant row snapshots previously turned the glyphs black.
+            let scale = CGFloat(bitmap.pixelsWide) / 220
+            for band in [10..<32, 32..<54] {
+                var readablePixels = 0
+                for y in Int(CGFloat(band.lowerBound) * scale)..<Int(CGFloat(band.upperBound) * scale) {
+                    for x in Int(40 * scale)..<Int(180 * scale) {
+                        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                        if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.65 {
+                            readablePixels += 1
+                        }
+                    }
+                }
+                XCTAssertGreaterThan(readablePixels, 20, "Unreadable drag text in \(dark ? "dark" : "light") mode")
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = dark ? "project-drag-dark" : "project-drag-light"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    @MainActor
     func testChromeLightAndDarkFixtures() throws {
         for dark in [false, true] {
             let name = dark ? "tabs-dark" : "tabs-light"

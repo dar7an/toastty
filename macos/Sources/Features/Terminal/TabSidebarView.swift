@@ -264,6 +264,10 @@ final class TabSidebarModel: ObservableObject {
     @Published private(set) var rows: [Row] = []
     @Published private(set) var selection: ObjectIdentifier?
     @Published private(set) var selectedProjectID: UUID?
+    /// Drag feedback must not activate another native tab window and destroy
+    /// the source view. Restore the active project's highlight on drop/cancel.
+    @Published var draggingProjectID: UUID?
+    var highlightedProjectID: UUID? { draggingProjectID ?? selectedProjectID }
     /// A lifted tab still belongs to this group until its drop commits.
     /// Hide only its rail cell; cancelling must not reconstruct terminals.
     @Published var liftedTabID: ObjectIdentifier?
@@ -842,7 +846,10 @@ struct ProjectSidebarListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding(get: { model.selectedProjectID }, set: { model.selectProject($0) })) {
+            List(selection: Binding(get: { model.highlightedProjectID }, set: {
+                guard model.draggingProjectID == nil else { return }
+                model.selectProject($0)
+            })) {
                 ForEach(model.projects) { project in
                     projectRow(project)
                         .tag(project.id)

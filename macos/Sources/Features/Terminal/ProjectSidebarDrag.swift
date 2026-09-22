@@ -49,6 +49,15 @@ struct ProjectSidebarRowInteraction: NSViewRepresentable {
             model.cancelProjectClick()
             return model.dragItem(for: projectID)
         }
+        view.makePreview = { size, appearance in
+            guard let project = model.projects.first(where: { $0.id == projectID }) else { return nil }
+            return ProjectSidebarDragPreview.image(
+                project: project, directory: model.directory(for: project), size: size, appearance: appearance)
+        }
+        view.onDragBegan = { model.draggingProjectID = projectID }
+        view.onDragEnded = {
+            if model.draggingProjectID == projectID { model.draggingProjectID = nil }
+        }
         view.configureTable()
     }
 
@@ -57,6 +66,9 @@ struct ProjectSidebarRowInteraction: NSViewRepresentable {
         var isEditing = false
         var onClick: (TimeInterval) -> Void = { _ in }
         var makeItem: () -> NSPasteboardItem? = { nil }
+        var makePreview: (NSSize, NSAppearance) -> NSImage? = { _, _ in nil }
+        var onDragBegan: () -> Void = {}
+        var onDragEnded: () -> Void = {}
         private var mouseDownPoint: NSPoint?
         private var isDragging = false
 
@@ -96,13 +108,11 @@ struct ProjectSidebarRowInteraction: NSViewRepresentable {
                   hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) >= 4,
                   let item = makeItem() else { return }
             let row = ancestors.compactMap { $0 as? NSTableRowView }.first ?? self
-            guard let bitmap = row.bitmapImageRepForCachingDisplay(in: row.bounds) else { return }
-            row.cacheDisplay(in: row.bounds, to: bitmap)
-            let image = NSImage(size: row.bounds.size)
-            image.addRepresentation(bitmap)
+            guard let image = makePreview(row.bounds.size, effectiveAppearance) else { return }
             let draggingItem = NSDraggingItem(pasteboardWriter: item)
             draggingItem.setDraggingFrame(convert(row.bounds, from: row), contents: image)
             isDragging = true
+            onDragBegan()
             let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
             session.animatesToStartingPositionsOnCancelOrFail = true
         }
@@ -114,11 +124,77 @@ struct ProjectSidebarRowInteraction: NSViewRepresentable {
         func draggingSession(_ session: NSDraggingSession, endedAt point: NSPoint, operation: NSDragOperation) {
             mouseDownPoint = nil
             isDragging = false
+            onDragEnded()
         }
 
         private var ancestors: UnfoldSequence<NSView, (NSView?, Bool)> {
             sequence(first: self as NSView, next: { $0.superview })
         }
+    }
+}
+
+/// Render outside the vibrant List: caching a live row can capture its
+/// vibrancy-mask text as black, and an inactive project has no selection fill.
+struct ProjectSidebarDragPreview: View {
+    let project: TerminalProject
+    let directory: String?
+    let foreground: Color
+    let background: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let emoji = project.emoji {
+                    Text(emoji).font(.system(size: 16))
+                } else {
+                    Image(systemName: "folder.fill").font(.system(size: 15))
+                }
+            }
+            .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(projectDisplayName(project))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(height: 22, alignment: .leading)
+                if let directory {
+                    Text(directory)
+                        .font(.caption)
+                        .opacity(0.8)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 4)
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(background, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @MainActor
+    static func image(project: TerminalProject, directory: String?, size: NSSize, appearance: NSAppearance) -> NSImage? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        var image: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            // Resolve colors now so the detached renderer cannot inherit the
+            // app's default appearance instead of the source window's theme.
+            let foreground = NSColor.alternateSelectedControlTextColor.usingColorSpace(.deviceRGB) ?? .white
+            let background = NSColor.selectedContentBackgroundColor.usingColorSpace(.deviceRGB) ?? .controlAccentColor
+            let host = NSHostingView(rootView: ProjectSidebarDragPreview(
+                project: project, directory: directory,
+                foreground: Color(nsColor: foreground), background: Color(nsColor: background)))
+            host.appearance = appearance
+            host.frame = NSRect(origin: .zero, size: size)
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let result = NSImage(size: size)
+            result.addRepresentation(bitmap)
+            image = result
+        }
+        return image
     }
 }
 
