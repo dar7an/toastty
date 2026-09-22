@@ -7,6 +7,7 @@ import Testing
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
     private static var emojiFixtureApp: Ghostty.App?
+    private static var tabMenuFixtureApp: Ghostty.App?
     @Test func draggingInactiveProjectHighlightsItWithoutSwitchingTerminals() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -651,13 +652,14 @@ struct ProjectWindowLayoutTests {
         #expect(ProjectTabReorderGesture.destination(source: 0, translation: 54, widths: [54, 54]) == 1)
     }
 
+    /// Verifies that the tab menu embeds a compact, accessible color palette.
     @Test func tabContextMenuUsesCompactAccessiblePalette() throws {
         let window = TerminalWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.tabColor = .purple
         let menu = makeProjectTabContextMenu(for: window)
-        let row = try #require(menu.items.last?.view as? TabColorPaletteRowView)
+        let row = try #require(menu.items.compactMap { $0.view as? TabColorPaletteRowView }.first)
         let buttons = row.arrangedSubviews.compactMap { $0 as? NSButton }
         #expect(buttons.count == TerminalTabColor.allCases.count)
         #expect(row.frame.width <= 320)
@@ -668,6 +670,76 @@ struct ProjectWindowLayoutTests {
         #expect(window.tabColor == .green)
         buttons[TerminalTabColor.none.rawValue].performClick(nil)
         #expect(window.tabColor == .none)
+    }
+
+    /// Verifies that the tab menu offers valid moves and keeps close actions last.
+    @Test func tabContextMenuShowsOnlyAvailableProjectMovesAndClosesLast() throws {
+        let config = try TemporaryConfig(
+            "macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        Self.tabMenuFixtureApp = app
+        let core = try #require(app.app)
+        let project = TerminalProject(name: "Shared")
+        let controllers = (0..<4).map { index in
+            let controller = ProjectTabMenuTestController(
+                app, withSurfaceTree: .init(view: Ghostty.SurfaceView(core)), usesProjectSidebar: true)
+            controller.project = index < 3 ? project : TerminalProject(name: "Other")
+            let window = TerminalWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach {
+                $0.focusedSurface = nil
+                $0.window?.contentView = nil
+                $0.window = nil
+            }
+            windows.forEach { $0.close() }
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        windows[1].addTabbedWindow(windows[2], ordered: .above)
+        windows[2].addTabbedWindow(windows[3], ordered: .above)
+        #expect(windows[0].tabGroup?.windows.count == 4)
+        let ordered = controllers[0].projectTabWindows
+        #expect(ordered.count == 3)
+
+        /// Returns the actionable text-item titles in a window's tab menu.
+        func titles(for window: NSWindow) -> [String] {
+            makeProjectTabContextMenu(for: window).items.compactMap { item in
+                item.isSeparatorItem || item.view != nil ? nil : item.title
+            }
+        }
+
+        let first = titles(for: ordered[0])
+        #expect(!first.contains("Move Tab Left"))
+        #expect(first.contains("Move Tab Right"))
+        #expect(first.contains("Close Tabs to the Right"))
+
+        let middle = titles(for: ordered[1])
+        #expect(middle.contains("Move Tab Left"))
+        #expect(middle.contains("Move Tab Right"))
+
+        let lastMenu = makeProjectTabContextMenu(for: ordered[2])
+        let last = titles(for: ordered[2])
+        #expect(last.contains("Move Tab Left"))
+        #expect(!last.contains("Move Tab Right"))
+        #expect(!last.contains("Close Tabs to the Right"))
+        #expect(lastMenu.items.suffix(2).map(\.title) == ["Close Tab", "Close Other Tabs"])
+        let moveItemsEnabled = lastMenu.items.filter { $0.title.hasPrefix("Move Tab") }
+            .allSatisfy { $0.isEnabled }
+        #expect(moveItemsEnabled)
+
+        let moving = try #require(ordered[1].windowController as? ProjectTabMenuTestController)
+        ProjectTabMovement(window: ordered[1]).move(by: -1)
+        #expect(moving.projectTabWindows == [ordered[1], ordered[0], ordered[2]])
+        #expect(moving.testUndoManager.undoActionName == "Move Tab")
+        moving.testUndoManager.undo()
+        #expect(moving.projectTabWindows == ordered)
     }
 
     @Test func tabRailAlwaysReordersAcrossTheCell() {
@@ -752,4 +824,10 @@ struct ProjectWindowLayoutTests {
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
+}
+
+private final class ProjectTabMenuTestController: TerminalController {
+    let testUndoManager = ExpiringUndoManager()
+    /// Exposes the test-owned undo manager to tab movement operations.
+    override var undoManager: ExpiringUndoManager? { testUndoManager }
 }

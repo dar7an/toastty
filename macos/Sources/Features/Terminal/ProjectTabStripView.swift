@@ -153,10 +153,13 @@ struct ProjectTabCell: View {
     @StateObject private var dragSession = TerminalLayoutDragSession()
     @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
+    /// Renders the tab cell and exposes only the movement actions available
+    /// for the tab's current position.
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
         // button must not shift the label, including on the selected tab.
         let isCloseVisible = isSelected || isHovered || selectionFocused || closeFocused
+        let movement = ProjectTabMovement(window: row.window)
         return ZStack(alignment: .leading) {
             Button { onSelect(row.id) } label: {
                 Text(row.title)
@@ -172,11 +175,19 @@ struct ProjectTabCell: View {
             .buttonStyle(.plain)
             .focused($selectionFocused)
             .accessibilityIdentifier("project-tab")
-            .accessibilityAction(named: Text("Close Tab")) {
-                (row.window.windowController as? TerminalController)?.closeTab(nil)
-            }
-            .accessibilityAction(named: Text("Rename Tab")) {
-                (row.window.windowController as? TerminalController)?.promptTabTitle()
+            .accessibilityActions {
+                Button("Close Tab") {
+                    (row.window.windowController as? TerminalController)?.closeTab(nil)
+                }
+                Button("Rename Tab") {
+                    (row.window.windowController as? TerminalController)?.promptTabTitle()
+                }
+                if movement.canMove(by: -1) {
+                    Button("Move Tab Left") { movement.move(by: -1) }
+                }
+                if movement.canMove(by: 1) {
+                    Button("Move Tab Right") { movement.move(by: 1) }
+                }
             }
             .accessibilityHint([row.pwd, shortcutHint,
                                 "Double-click to rename. Drag to reorder or move to another window."]
@@ -260,6 +271,42 @@ struct ProjectTabCell: View {
         .motionAnimation(.easeOut(duration: 0.12), value: dropState)
     }
 
+}
+
+/// Resolves tab movement against the current project's visible order. Both
+/// menu and accessibility actions use this value so unavailable directions
+/// disappear at the ends of the rail and every move follows the drag path.
+@MainActor
+struct ProjectTabMovement {
+    let window: NSWindow
+
+    /// The terminal controller that owns the target window.
+    private var controller: TerminalController? {
+        window.windowController as? TerminalController
+    }
+
+    /// The target window's position among tabs in the same project.
+    private var currentIndex: Int? {
+        controller?.projectTabWindows.firstIndex(of: window)
+    }
+
+    /// The number of tabs that belong to the target window's project.
+    var count: Int {
+        controller?.projectTabWindows.count ?? 0
+    }
+
+    /// Returns whether moving by the given relative offset stays in the project.
+    func canMove(by offset: Int) -> Bool {
+        guard let currentIndex else { return false }
+        return (0..<count).contains(currentIndex + offset)
+    }
+
+    /// Moves the target tab by the given relative offset when the destination exists.
+    func move(by offset: Int) {
+        guard let controller, let currentIndex, canMove(by: offset) else { return }
+        TerminalLayoutCoordinator.shared.reorderTab(
+            controller.projectTabID, toProjectIndex: currentIndex + offset)
+    }
 }
 
 private struct ProjectTabDropIndicator: View {
@@ -711,27 +758,31 @@ final class ProjectTabStripHostingView: NonDraggableHostingView<AnyView> {
 }
 
 /// Builds the project-tab context menu for the supplied terminal window.
+@MainActor
 func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     let menu = NSMenu()
     let controller = window.windowController as? TerminalController
+    let movement = ProjectTabMovement(window: window)
     if let surface = controller?.focusedSurface {
         TerminalPaneLayoutMenu.append(to: menu, surface: surface)
         menu.addItem(.separator())
     }
-    menu.addItem(ProjectTabMenuItem("Rename Tab…") { [weak controller] in controller?.promptTabTitle() })
-    menu.addItem(ProjectTabMenuItem("Close Tab") { [weak controller] in controller?.closeTab(nil) })
-    menu.addItem(ProjectTabMenuItem("Close Other Tabs") { [weak controller] in controller?.closeOtherTabs(nil) })
-    menu.addItem(ProjectTabMenuItem("Close Tabs to the Right") { [weak controller] in
-        controller?.closeTabsOnTheRight(nil)
-    })
-    // Same detach action as the native tab menu's `moveTabToNewWindow:`
-    // (NSWindow API, always present where native tabs exist).
-    let moveItem = ProjectTabMenuItem("Move Tab to New Window") { [weak window] in
-        window?.moveTabToNewWindow(nil)
+    if let controller {
+        menu.addItem(ProjectTabMenuItem("Rename Tab…") { [weak controller] in controller?.promptTabTitle() })
+        if movement.canMove(by: -1) {
+            menu.addItem(ProjectTabMenuItem("Move Tab Left") { movement.move(by: -1) })
+        }
+        if movement.canMove(by: 1) {
+            menu.addItem(ProjectTabMenuItem("Move Tab Right") { movement.move(by: 1) })
+        }
+        // Same detach action as the native tab menu's `moveTabToNewWindow:`.
+        if (window.tabGroup?.windows.count ?? 0) > 1 {
+            menu.addItem(ProjectTabMenuItem("Move Tab to New Window") { [weak window] in
+                window?.moveTabToNewWindow(nil)
+            })
+        }
+        menu.addItem(.separator())
     }
-    moveItem.isEnabled = (window.tabGroup?.windows.count ?? 0) > 1
-    menu.addItem(moveItem)
-    menu.addItem(.separator())
     if #available(macOS 14.0, *) {
         menu.addItem(.sectionHeader(title: "Tab Color"))
     } else {
@@ -745,6 +796,20 @@ func makeProjectTabContextMenu(for window: NSWindow) -> NSMenu {
     for item in palette.items {
         palette.removeItem(item)
         menu.addItem(item)
+    }
+    if let controller {
+        menu.addItem(.separator())
+        menu.addItem(ProjectTabMenuItem("Close Tab") { [weak controller] in controller?.closeTab(nil) })
+        if movement.count > 1 {
+            menu.addItem(ProjectTabMenuItem("Close Other Tabs") { [weak controller] in
+                controller?.closeOtherTabs(nil)
+            })
+        }
+        if movement.canMove(by: 1) {
+            menu.addItem(ProjectTabMenuItem("Close Tabs to the Right") { [weak controller] in
+                controller?.closeTabsOnTheRight(nil)
+            })
+        }
     }
     return menu
 }

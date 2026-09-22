@@ -508,6 +508,7 @@ struct TabSidebarModelTests {
         #expect(unknownColor.nameOverride == "Newer")
     }
 
+    /// Verifies that project appearance changes affect only matching project tabs.
     @Test func projectAppearanceUpdatesMatchingTabsOnly() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -538,7 +539,12 @@ struct TabSidebarModelTests {
         let originalDirectory = controllers[0].project.directory
         let originalName = controllers[0].project.nameOverride
         let menu = makeProjectContextMenu(project: alpha, model: model)
-        let palette = try #require(menu.items.last?.view as? TabColorPaletteRowView)
+        #expect(menu.items.last?.title == "Delete Project")
+        #expect(menu.items.dropLast().last?.isSeparatorItem == true)
+        #expect(!menu.items.contains { $0.title == "Reset Emoji" || $0.title == "Reset Project Appearance" })
+        #expect(!menu.items.contains { $0.title == "Move Project Up" })
+        #expect(menu.items.contains { $0.title == "Move Project Down" })
+        let palette = try #require(menu.items.compactMap { $0.view as? TabColorPaletteRowView }.first)
         let buttons = palette.arrangedSubviews.compactMap { $0 as? NSButton }
         #expect(buttons.count == TerminalTabColor.allCases.count)
         #expect(palette.frame.width <= 320)
@@ -560,6 +566,11 @@ struct TabSidebarModelTests {
         #expect(controllers[2].project.color == .none)
         #expect(model.projects.first(where: { $0.id == alpha.id })?.emoji == "🧪")
         #expect(model.projects.first(where: { $0.id == alpha.id })?.color == .blue)
+
+        let customized = try #require(model.projects.first(where: { $0.id == alpha.id }))
+        let customizedMenu = makeProjectContextMenu(project: customized, model: model)
+        #expect(customizedMenu.items.contains { $0.title == "Reset Emoji" })
+        #expect(customizedMenu.items.contains { $0.title == "Reset Project Appearance" })
 
         model.resetProjectEmoji(for: alpha.id)
         #expect(controllers[0].project.emoji == nil)

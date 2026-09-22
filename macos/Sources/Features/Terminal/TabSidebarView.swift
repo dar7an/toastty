@@ -844,6 +844,7 @@ struct ProjectSidebarListView: View {
     @ObservedObject var model: TabSidebarModel
     let controller: TerminalController
 
+    /// Renders the project list and its persistent new-project control.
     var body: some View {
         VStack(spacing: 0) {
             List(selection: Binding(get: { model.highlightedProjectID }, set: {
@@ -899,6 +900,20 @@ struct ProjectSidebarListView: View {
             .contextMenu {
                 Button("New Project") { controller.newProject(nil) }
             }
+            Divider()
+            Button { controller.newProject(nil) } label: {
+                Label("New Project", systemImage: "plus")
+                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .help("Create a project from the current terminal directory")
+            .accessibilityLabel("New Project")
+            .accessibilityHint("Creates a project from the current terminal directory")
+            .accessibilityIdentifier("project-new")
         }
         // Extend the sidebar's one material through the traffic-light and
         // toolbar region, while the list itself respects the safe area.
