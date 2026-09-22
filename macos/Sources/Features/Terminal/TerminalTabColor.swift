@@ -68,9 +68,9 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
     }
 
     func swatchImage(selected: Bool) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+        let size = NSSize(width: 22, height: 22)
         return NSImage(size: size, flipped: false) { rect in
-            let circleRect = rect.insetBy(dx: 1, dy: 1)
+            let circleRect = rect.insetBy(dx: 3, dy: 3)
             let circlePath = NSBezierPath(ovalIn: circleRect)
 
             if let fillColor = self.displayColor {
@@ -94,8 +94,8 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
             }
 
             if selected {
-                let highlight = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-                highlight.lineWidth = 2
+                let highlight = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
+                highlight.lineWidth = 1.5
                 NSColor.controlAccentColor.setStroke()
                 highlight.stroke()
             }
@@ -254,9 +254,9 @@ final class TabColorPaletteRowView: NSStackView {
         self.handler = handler
         super.init(frame: .zero)
         orientation = .horizontal
-        spacing = 2
+        spacing = 4
         alignment = .centerY
-        edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         setAccessibilityLabel("Tab Color")
         for color in TerminalTabColor.allCases {
             let button = NSButton(
@@ -271,8 +271,8 @@ final class TabColorPaletteRowView: NSStackView {
             button.refusesFirstResponder = false
             button.toolTip = color.localizedName
             button.setAccessibilityLabel(color == selected ? "\(color.localizedName), selected" : color.localizedName)
-            button.widthAnchor.constraint(equalToConstant: 22).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
             addArrangedSubview(button)
         }
     }

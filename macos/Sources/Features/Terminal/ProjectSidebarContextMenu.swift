@@ -6,10 +6,23 @@ func makeProjectContextMenu(project: TerminalProject, model: TabSidebarModel) ->
     let menu = NSMenu()
     menu.autoenablesItems = false
     menu.addItem(ProjectTabMenuItem("Rename Project…") { model.beginRename(projectID: project.id) })
-    menu.addItem(ProjectTabMenuItem("Change Emoji…") { model.beginProjectEmojiEdit(projectID: project.id) })
+    menu.addItem(ProjectTabMenuItem("Change Emoji…") {
+        // Let native menu tracking restore its responder before presenting
+        // the text-input anchor for the character picker.
+        DispatchQueue.main.async { model.beginProjectEmojiEdit(projectID: project.id) }
+    })
+    let resetEmoji = ProjectTabMenuItem("Reset Emoji") { model.resetProjectEmoji(for: project.id) }
+    resetEmoji.isEnabled = project.emoji != nil
+    menu.addItem(resetEmoji)
     let reset = ProjectTabMenuItem("Reset Project Appearance") { model.resetProjectAppearance(for: project.id) }
     reset.isEnabled = project.emoji != nil || project.color != .none
     menu.addItem(reset)
+    menu.addItem(.separator())
+    for (title, offset) in [("Move Project Up", -1), ("Move Project Down", 1)] {
+        let move = ProjectTabMenuItem(title) { model.moveProject(project.id, by: offset) }
+        move.isEnabled = model.canMoveProject(project.id, by: offset)
+        menu.addItem(move)
+    }
     menu.addItem(.separator())
     // The restore target is empty until a tab records selection, so fall
     // back to the project's first row like `projectController` does.

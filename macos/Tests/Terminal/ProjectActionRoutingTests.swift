@@ -7,6 +7,49 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectActionRoutingTests {
+    @Test(arguments: [false, true])
+    func crossWindowRailDropPreservesLiveSplitTreeAndAdoptsDestinationProject(after: Bool) async throws {
+        let app = try Self.testApp()
+        let core = try #require(app.app)
+        let first = Ghostty.SurfaceView(core)
+        let second = Ghostty.SurfaceView(core)
+        let destinationSurface = Ghostty.SurfaceView(core)
+        let tree = try SplitTree(view: first).inserting(view: second, at: first, direction: .right)
+        let source = TerminalController(app, withSurfaceTree: tree, usesProjectSidebar: true)
+        let target = TerminalController(app, withSurfaceTree: .init(view: destinationSurface), usesProjectSidebar: true)
+        let sourceWindow = makeWindow(source, views: [first, second])
+        let targetWindow = makeWindow(target, views: [destinationSurface])
+        sourceWindow.tabbingMode = .preferred
+        targetWindow.tabbingMode = .preferred
+        sourceWindow.title = "Running build"
+        source.focusedSurface = second
+        let originalID = source.projectTabID
+        let sourceModel = sourceWindow.projectSidebarModel
+        defer {
+            tearDown(source, window: sourceWindow)
+            tearDown(target, window: targetWindow)
+        }
+        let coordinator = TerminalLayoutCoordinator.shared
+        #expect(source.project.id != target.project.id)
+        #expect(coordinator.canDropInTabBar(.tab(originalID), beside: targetWindow))
+        #expect(coordinator.insertTab(originalID, beside: targetWindow, after: after))
+        await drainMainQueue()
+        #expect(source.window === sourceWindow)
+        #expect(source.projectTabID == originalID)
+        #expect(source.project.id == target.project.id)
+        #expect(source.surfaceTree.count == 2)
+        #expect(source.surfaceTree.contains(first) && source.surfaceTree.contains(second))
+        #expect(source.focusedSurface === second)
+        #expect(sourceWindow.firstResponder === second)
+        #expect(target.surfaceTree.count == 1)
+        #expect(sourceWindow.tabGroup === targetWindow.tabGroup)
+        #expect(targetWindow.tabGroup?.selectedWindow === sourceWindow)
+        #expect(target.projectTabWindows == (after ? [targetWindow, sourceWindow] : [sourceWindow, targetWindow]))
+        #expect(sourceWindow.title == "Running build")
+        #expect(sourceWindow.projectSidebarModel !== sourceModel)
+        #expect(!coordinator.canDropInTabBar(.tab(originalID), beside: sourceWindow))
+    }
+
     /// Verifies that project bindings remain printable in unsupported windows.
     @Test(arguments: [false, true])
     func unsupportedWindowsPreserveOptionDigitInput(nativeTabs: Bool) async throws {
@@ -274,9 +317,8 @@ struct ProjectActionRoutingTests {
         if detached {
             #expect(cell.detachForWindowDrag())
             await drainMainQueue()
-            // Rail reorder is group-local; split transfers retain the shared
-            // coordinator's existing same-project, cross-window behavior.
-            #expect(!TerminalLayoutCoordinator.shared.canDropInTabBar(.tab(tab.projectTabID), beside: window))
+            // Detached tabs can return to the rail or join a split.
+            #expect(TerminalLayoutCoordinator.shared.canDropInTabBar(.tab(tab.projectTabID), beside: window))
         }
         let drag = ProjectTabDragSession(source: cell, grabPoint: NSPoint(x: cell.bounds.midX, y: 14))
         drag.lift()

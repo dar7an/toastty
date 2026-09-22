@@ -8,6 +8,74 @@ struct TabSidebarModelTests {
     // AppKit can retain attached views past fixture teardown. Keep their core
     // alive for the process lifetime, as the real application does.
     private static var directoryFixtureApp: Ghostty.App?
+
+    @Test func projectReorderingPersistsWithoutMovingTabsOrChangingSelection() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let alpha = TerminalProject(name: "Alpha")
+        let beta = TerminalProject(name: "Beta")
+        let gamma = TerminalProject(name: "Gamma")
+        let controllers = [alpha, beta, alpha, gamma].map { project in
+            let controller = TerminalController(app, withSurfaceTree: .init(), project: project)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                  styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach { $0.window = nil }
+            windows.forEach { $0.close() }
+        }
+        for window in windows.dropFirst() { windows[0].addTabbedWindow(window, ordered: .above) }
+        let group = try #require(windows[0].tabGroup)
+        let model = group.tabSidebarModel
+        await drainMainQueue()
+        model.select(ObjectIdentifier(windows[2]), stealFocus: false)
+        let nativeOrder = group.windows
+        let original = model.projects.map(\.id)
+        let selected = model.selection
+        let alphaTabs = model.visibleTabs.map(\.id)
+        let expected = Array(original.dropFirst()) + [original[0]]
+
+        let item = try #require(model.dragItem(for: original[0]))
+        let data = try #require(item.data(forType: .init(ProjectSidebarDragPayload.typeIdentifier)))
+        let payload = try JSONDecoder().decode(ProjectSidebarDragPayload.self, from: data)
+        #expect(!model.acceptProjectDrop(.init(groupID: UUID(), projectID: original[0]), at: 3))
+        #expect(!model.acceptProjectDrop(.init(groupID: model.dragID, projectID: UUID()), at: 3))
+        #expect(!model.acceptProjectDrop(payload, at: 4))
+        #expect(model.acceptProjectDrop(payload, at: 3))
+        #expect(model.projects.map(\.id) == expected)
+        #expect(group.windows == nativeOrder)
+        #expect(model.selection == selected)
+        #expect(model.visibleTabs.map(\.id) == alphaTabs)
+        #expect(model.restoreTargetRow(for: alpha.id)?.window === windows[2])
+
+        // Every tab carries the same persisted project rank. Restoring the
+        // metadata into a fresh model must not depend on native tab order.
+        for controller in controllers {
+            let encoded = try JSONEncoder().encode(controller.project)
+            controller.project = try JSONDecoder().decode(TerminalProject.self, from: encoded)
+            #expect(controller.project.sidebarOrder == expected.firstIndex(of: controller.project.id))
+        }
+        let restored = TabSidebarModel(tabGroup: group)
+        restored.refresh()
+        #expect(restored.projects.map(\.id) == expected)
+        #expect(!restored.canMoveProject(expected[0], by: -1))
+        #expect(!restored.canMoveProject(expected[2], by: 1))
+        restored.moveProject(original[0], by: -2)
+        #expect(restored.projects.map(\.id) == original)
+
+        // Invalid/native no-op drops leave ranks and selection alone.
+        let previous = controllers.map(\.project)
+        restored.moveProjects(fromOffsets: [3], toOffset: 0)
+        restored.moveProjects(fromOffsets: [0], toOffset: 1)
+        #expect(controllers.map(\.project) == previous)
+        #expect(group.selectedWindow === windows[2])
+    }
+
     @Test func directoryFollowsOnlyTheFocusedSplit() async throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -473,7 +541,7 @@ struct TabSidebarModelTests {
         let palette = try #require(menu.items.last?.view as? TabColorPaletteRowView)
         let buttons = palette.arrangedSubviews.compactMap { $0 as? NSButton }
         #expect(buttons.count == TerminalTabColor.allCases.count)
-        #expect(palette.frame.width <= 260)
+        #expect(palette.frame.width <= 320)
         #expect(!menu.items.contains { $0.title == "Blue" })
         buttons[TerminalTabColor.blue.rawValue].performClick(nil)
         model.beginProjectEmojiEdit(projectID: alpha.id)
@@ -493,6 +561,11 @@ struct TabSidebarModelTests {
         #expect(model.projects.first(where: { $0.id == alpha.id })?.emoji == "🧪")
         #expect(model.projects.first(where: { $0.id == alpha.id })?.color == .blue)
 
+        model.resetProjectEmoji(for: alpha.id)
+        #expect(controllers[0].project.emoji == nil)
+        #expect(controllers[1].project.emoji == nil)
+        #expect(controllers[0].project.color == .blue)
+        #expect(controllers[1].project.color == .blue)
         model.resetProjectAppearance(for: alpha.id)
         await drainMainQueue()
         #expect(controllers[0].project.emoji == nil)

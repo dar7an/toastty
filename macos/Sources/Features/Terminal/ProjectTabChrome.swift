@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// Chrome is deliberately quiet: an opaque selected surface in light, a
-/// light wash in dark, a fine edge, and immediate pointer feedback. The
-/// system toolbar owns the material; nesting glass inside glass makes
-/// terminal navigation harder to read.
+/// Capsule tabs sit inside the rounded rail's two-point inset. Selection,
+/// hover, press, and keyboard focus share the same shape.
 struct ProjectTabChrome: View {
     var isSelected = false
     var isHovered = false
@@ -14,9 +12,7 @@ struct ProjectTabChrome: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.displayScale) private var displayScale
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: ProjectChrome.tabCornerRadius, style: .continuous)
-    }
+    private var shape: Capsule { ProjectTabStripView.cellShape }
 
     private var fill: Color {
         if isSelected {
@@ -56,8 +52,8 @@ struct ProjectTabChrome: View {
     }
 }
 
-/// A single attached surface replaces the capsule-within-a-capsule track.
-/// Native vibrancy stays in the toolbar, never behind selected-tab text.
+/// A continuous recessed capsule groups the tabs. The 32-point rail wraps
+/// 28-point tab capsules with a concentric two-point inset on every side.
 struct ProjectTabRailBackground: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -66,14 +62,17 @@ struct ProjectTabRailBackground: View {
     var body: some View {
         Group {
             if reduceTransparency || contrast == .increased {
-                Color(nsColor: .windowBackgroundColor)
+                Color(nsColor: .controlBackgroundColor)
             } else {
                 VisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
             }
         }
-        .overlay(alignment: .bottom) {
-            ProjectChrome.separatorColor
-                .frame(height: contrast == .increased ? 1 : ProjectChrome.hairline(displayScale: displayScale))
+        .overlay(.primary.opacity(0.04))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().strokeBorder(
+                ProjectChrome.separatorColor,
+                lineWidth: contrast == .increased ? 1 : ProjectChrome.hairline(displayScale: displayScale))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

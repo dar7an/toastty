@@ -16,6 +16,9 @@ struct TerminalProject: Codable, Equatable, Identifiable {
     var selectedTabID: UUID?
     var emoji: String?
     var color: TerminalTabColor
+    /// User-defined sidebar position, independent of the project's tab order.
+    /// Older projects keep their existing order until the first rearrangement.
+    var sidebarOrder: Int?
 
     /// Legacy-compatible display name. Prefer `displayName` in new code.
     var name: String {
@@ -129,6 +132,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         case selectedTabID
         case emoji
         case color
+        case sidebarOrder
     }
 
     init(from decoder: any Decoder) throws {
@@ -146,6 +150,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         }
         selectedTabID = try container.decodeIfPresent(UUID.self, forKey: .selectedTabID)
         emoji = Self.normalizedEmoji(try container.decodeIfPresent(String.self, forKey: .emoji))
+        sidebarOrder = try container.decodeIfPresent(Int.self, forKey: .sidebarOrder)
         // An unknown stored value (e.g. a color added by a newer build) must
         // not fail the whole project's decode: raw enum decoding throws
         // before the nil fallback, so decode the raw value lossily.
@@ -168,6 +173,7 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         try container.encode(selectedTabID, forKey: .selectedTabID)
         try container.encode(emoji, forKey: .emoji)
         try container.encode(color, forKey: .color)
+        try container.encodeIfPresent(sidebarOrder, forKey: .sidebarOrder)
     }
 }
 
@@ -238,6 +244,8 @@ extension NSWindow {
 
 /// Shared project and tab state for one visible window. Mutated on the main queue.
 final class TabSidebarModel: ObservableObject {
+    /// Prevent project drags from rearranging a different window group.
+    let dragID = UUID()
     static let minWidth: CGFloat = 160
     static let maxWidth: CGFloat = 320
     static let defaultWidth: CGFloat = 220
@@ -270,14 +278,72 @@ final class TabSidebarModel: ObservableObject {
     @Published var editingProjectEmojiID: UUID?
     @Published var editingProjectEmojiDraft: String = ""
     private var lastProjectClick: (id: UUID, timestamp: TimeInterval)?
+    private var lastTabClick: (id: ObjectIdentifier, timestamp: TimeInterval)?
+
+    /// Native tab selection swaps hosting views between the two clicks.
+    /// Keep the click history on their shared model, as with project rename.
+    func recordTabClick(_ id: ObjectIdentifier, timestamp: TimeInterval) -> Bool {
+        guard let previous = lastTabClick, previous.id == id,
+              timestamp >= previous.timestamp,
+              timestamp - previous.timestamp <= NSEvent.doubleClickInterval else {
+            lastTabClick = (id, timestamp)
+            return false
+        }
+        lastTabClick = nil
+        return true
+    }
+
+    func cancelTabClick() { lastTabClick = nil }
+    func cancelProjectClick() { lastProjectClick = nil }
 
     var projects: [TerminalProject] {
         var seen = Set<UUID>()
-        return rows.compactMap { seen.insert($0.project.id).inserted ? $0.project : nil }
+        let unique = rows.compactMap { seen.insert($0.project.id).inserted ? $0.project : nil }
+        return unique.enumerated().sorted { lhs, rhs in
+            let left = lhs.element.sidebarOrder ?? Int.max
+            let right = rhs.element.sidebarOrder ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map(\.element)
     }
 
     var visibleTabs: [Row] { rows.filter { $0.project.id == selectedProjectID } }
     var railTabs: [Row] { visibleTabs.filter { $0.id != liftedTabID } }
+
+    /// Native List movement changes only project metadata. Keeping AppKit's
+    /// windows in place preserves tab order, remembered selection, and shells.
+    func moveProjects(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        var ordered = projects.map(\.id)
+        guard !offsets.isEmpty, offsets.allSatisfy(ordered.indices.contains),
+              (0...ordered.count).contains(destination),
+              editingProjectID == nil, editingProjectEmojiID == nil else { return }
+        let previous = ordered
+        ordered.move(fromOffsets: offsets, toOffset: destination)
+        guard ordered != previous else { return }
+        lastProjectClick = nil
+        let positions = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { ($0.element, $0.offset) })
+        for window in windows {
+            guard let controller = window.windowController as? TerminalController,
+                  let position = positions[controller.project.id],
+                  controller.project.sidebarOrder != position else { continue }
+            // Every member carries the position through window restoration,
+            // tab creation, and closing/reopening a project's selected tab.
+            controller.project.sidebarOrder = position
+        }
+        refreshProjectMetadata()
+    }
+
+    func canMoveProject(_ id: UUID, by offset: Int) -> Bool {
+        let ordered = projects
+        guard editingProjectID == nil, editingProjectEmojiID == nil,
+              let index = ordered.firstIndex(where: { $0.id == id }) else { return false }
+        return ordered.indices.contains(index + offset)
+    }
+
+    func moveProject(_ id: UUID, by offset: Int) {
+        guard canMoveProject(id, by: offset),
+              let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        moveProjects(fromOffsets: IndexSet(integer: index), toOffset: index + offset + (offset > 0 ? 1 : 0))
+    }
 
     /// Selects a project's remembered tab, optionally returning focus to it.
     func selectProject(_ id: UUID?, stealFocus: Bool = true) {
@@ -356,12 +422,12 @@ final class TabSidebarModel: ObservableObject {
     /// Opens the emoji editor for a project and makes that project visible.
     /// The draft is kept on the shared model so row rebuilds cannot discard it.
     func beginProjectEmojiEdit(projectID: UUID) {
-        guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        guard projects.contains(where: { $0.id == projectID }) else { return }
         if editingProjectID != nil { commitRename() }
         if editingProjectEmojiID != nil { cancelProjectEmojiEdit() }
         selectProject(projectID)
         editingProjectEmojiID = projectID
-        editingProjectEmojiDraft = project.emoji ?? ""
+        editingProjectEmojiDraft = ""
     }
 
     /// Commits a valid emoji draft. Empty input restores the default folder
@@ -406,6 +472,10 @@ final class TabSidebarModel: ObservableObject {
             project.emoji = nil
             project.color = .none
         }
+    }
+
+    func resetProjectEmoji(for projectID: UUID) {
+        updateProject(projectID) { $0.emoji = nil }
     }
 
     /// Abbreviated directory for a project: the live pwd of its selected
@@ -458,7 +528,19 @@ final class TabSidebarModel: ObservableObject {
             controller.project = project
             changed = true
         }
-        if changed { refresh() }
+        if changed { refreshProjectMetadata() }
+    }
+
+    /// Metadata edits do not change group membership. Keep the existing
+    /// window and terminal observations instead of rebuilding them all.
+    private func refreshProjectMetadata() {
+        rows = rows.map { row in
+            var row = row
+            if let controller = row.window.windowController as? TerminalController {
+                row.project = controller.project
+            }
+            return row
+        }
     }
 
     /// Source of truth for sidebar visibility and width. New independent
@@ -764,6 +846,9 @@ struct ProjectSidebarListView: View {
                 ForEach(model.projects) { project in
                     projectRow(project)
                         .tag(project.id)
+                        .overlay(ProjectSidebarRowInteraction(
+                            model: model, projectID: project.id,
+                            isEditing: model.editingProjectID != nil || model.editingProjectEmojiID != nil))
                         .help(projectHelp(project))
                         .accessibilityLabel(projectAccessibilityLabel(project))
                         .background(ProjectSidebarContextMenu {
@@ -779,27 +864,20 @@ struct ProjectSidebarListView: View {
                         .accessibilityActions {
                             Button("Rename Project") { model.beginRename(projectID: project.id) }
                             Button("Change Emoji") { model.beginProjectEmojiEdit(projectID: project.id) }
+                            Button("Reset Emoji") { model.resetProjectEmoji(for: project.id) }
                             Button("Reset Project Appearance") { model.resetProjectAppearance(for: project.id) }
+                            if model.canMoveProject(project.id, by: -1) {
+                                Button("Move Project Up") { model.moveProject(project.id, by: -1) }
+                            }
+                            if model.canMoveProject(project.id, by: 1) {
+                                Button("Move Project Down") { model.moveProject(project.id, by: 1) }
+                            }
                             ForEach(TerminalTabColor.allCases, id: \.rawValue) { color in
                                 Button("Project Color: \(color.localizedName)") {
                                     model.setProjectColor(color, for: project.id)
                                 }
                             }
                             Button("Delete Project") { projectController(project)?.closeProject() }
-                        }
-                        .popover(
-                            isPresented: Binding(
-                                get: {
-                                    model.editingProjectEmojiID == project.id
-                                        && controller.window.map(ObjectIdentifier.init) == model.selection
-                                },
-                                set: { presented in
-                                    if !presented { model.cancelProjectEmojiEdit() }
-                                }
-                            ),
-                            arrowEdge: .leading
-                        ) {
-                            ProjectEmojiEditor(model: model, projectID: project.id)
                         }
                 }
             }
@@ -834,37 +912,46 @@ struct ProjectSidebarListView: View {
         private func projectRow(_ project: TerminalProject) -> some View {
             HStack(spacing: 8) {
                 ProjectSidebarIconView(project: project)
-                // Only the visible window owns the editor and its focus.
-                // Hidden tabs share this model but must not create competing
-                // focused fields or commit the draft when they lose focus.
-                Group {
-                    if model.editingProjectID == project.id,
-                       controller.window.map(ObjectIdentifier.init) == model.selection {
-                        ProjectRenameField(model: model, projectID: project.id)
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
+                    .background(ProjectEmojiPicker(
+                        isPresented: model.editingProjectEmojiID == project.id &&
+                            controller.window.map(ObjectIdentifier.init) == model.selection,
+                        onSelect: { emoji in
+                            guard model.editingProjectEmojiID == project.id else { return }
+                            model.editingProjectEmojiDraft = emoji
+                            model.commitProjectEmojiEdit()
+                        },
+                        onCancel: {
+                            guard model.editingProjectEmojiID == project.id else { return }
+                            model.cancelProjectEmojiEdit()
+                        }))
+                VStack(alignment: .leading, spacing: 4) {
+                    // Reserve the editor's height even when showing the label.
+                    // Keep the directory visible throughout rename.
+                    Group {
+                        if model.editingProjectID == project.id,
+                           controller.window.map(ObjectIdentifier.init) == model.selection {
+                            ProjectRenameField(model: model, projectID: project.id)
+                        } else {
                             Text(projectDisplayName(project))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                            if let directory = model.directory(for: project) {
-                                Text(directory)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
                         }
+                    }
+                    .frame(height: 22, alignment: .leading)
+                    if let directory = model.directory(for: project) {
+                        Text(directory)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
                 Spacer(minLength: 4)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.vertical, 6)
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
-            .onTapGesture {
-                model.clickProject(project.id)
-            }
         }
 
         private func projectHelp(_ project: TerminalProject) -> String {
@@ -900,93 +987,17 @@ struct ProjectSidebarListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                     } else {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 15))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(
-                                project.color.displayColor.map(Color.init(nsColor:))
-                                    ?? .accentColor)
+                        if #available(macOS 14.0, *) {
+                            ProjectSidebarFolderIcon(color: project.color)
+                        } else {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.primary)
+                        }
                     }
                 }
                 .frame(width: 20, height: 20, alignment: .center)
                 .accessibilityHidden(true)
-            }
-        }
-
-        private struct ProjectEmojiEditor: View {
-            @ObservedObject var model: TabSidebarModel
-            let projectID: UUID
-            @FocusState private var focused: Bool
-
-            private var trimmedDraft: String {
-                model.editingProjectEmojiDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-
-            private var isValidDraft: Bool {
-                trimmedDraft.isEmpty || TerminalProject.normalizedEmoji(trimmedDraft) != nil
-            }
-
-            var body: some View {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Project Icon")
-                        .font(.headline)
-
-                    HStack(spacing: 8) {
-                        Text("Emoji")
-                        TextField("Emoji", text: $model.editingProjectEmojiDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
-                            .frame(width: 40)
-                            .focused($focused)
-                            .accessibilityLabel("Project emoji")
-                            .onSubmit { model.commitProjectEmojiEdit() }
-                            .onExitCommand { model.cancelProjectEmojiEdit() }
-
-                        Button("Choose Emoji…") {
-                            focused = true
-                            DispatchQueue.main.async {
-                                guard model.editingProjectEmojiID == projectID else { return }
-                                NSApp.orderFrontCharacterPalette(nil)
-                            }
-                        }
-                        .help("Open the macOS Character Viewer")
-                    }
-
-                    if !isValidDraft {
-                        Text("Choose one emoji, or leave it empty for the folder icon.")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    HStack(spacing: 8) {
-                        Button("Use Default") {
-                            model.editingProjectEmojiDraft = ""
-                        }
-                        .help("Use the default folder icon")
-
-                        Spacer(minLength: 8)
-
-                        Button("Cancel") { model.cancelProjectEmojiEdit() }
-                            .keyboardShortcut(.cancelAction)
-                        Button("Done") { model.commitProjectEmojiEdit() }
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(!isValidDraft)
-                    }
-                }
-                .padding(16)
-                .frame(width: 280)
-                .onAppear {
-                    DispatchQueue.main.async {
-                        guard model.editingProjectEmojiID == projectID else { return }
-                        focused = true
-                        DispatchQueue.main.async {
-                            guard model.editingProjectEmojiID == projectID else { return }
-                            (NSApp.keyWindow?.firstResponder as? NSTextView)?.selectAll(nil)
-                        }
-                    }
-                }
             }
         }
 

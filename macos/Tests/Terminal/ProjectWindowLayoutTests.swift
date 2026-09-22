@@ -6,6 +6,78 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
+    private static var emojiFixtureApp: Ghostty.App?
+    @Test func sidebarRowsExposeNativeReorderDragAndInsertionGap() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        fixture.window.makeKeyAndOrderFront(nil)
+        defer { fixture.controller.window = nil; fixture.window.close() }
+        await drainMainQueue()
+        let table = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
+            .compactMap { $0 as? NSTableView }.first)
+        #expect(table.verticalMotionCanBeginDrag)
+        #expect(table.draggingDestinationFeedbackStyle == .gap)
+        // A model-only test cannot catch a missing native drop registration.
+        #expect(table.registeredDraggedTypes.contains(.init(ProjectSidebarDragPayload.typeIdentifier)))
+        #expect((table as? NSOutlineView)?.dataSource is ProjectSidebarDropCoordinator)
+        let interaction = try #require(descendants(of: table)
+            .compactMap { $0 as? ProjectSidebarRowInteraction.InteractionView }.first)
+        #expect(interaction.bounds.width > 100)
+        #expect(interaction.bounds.height >= 44)
+        let content = try #require(fixture.window.contentView)
+        let point = interaction.convert(NSPoint(x: interaction.bounds.midX, y: interaction.bounds.midY), to: content.superview)
+        #expect(content.hitTest(point) === interaction)
+    }
+
+    @Test func emojiPickerReceivesFocusInRenderedSidebarAndCommitsImmediately() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        Self.emojiFixtureApp = app
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        let terminal = Ghostty.SurfaceView(try #require(app.app))
+        terminal.frame = NSRect(x: 300, y: 0, width: 400, height: 300)
+        window.contentView?.addSubview(terminal)
+        fixture.controller.focusedSurface = terminal
+        window.makeKeyAndOrderFront(nil)
+        defer { fixture.controller.window = nil; window.close() }
+        await drainMainQueue()
+        let model = window.projectSidebarModel
+        var presentations = 0
+        let choices = ["🧪", "👩🏽‍💻", "😆", "🏳️‍🌈"]
+        for (index, emoji) in choices.enumerated() {
+            // SwiftUI may replace the row's input anchor after metadata changes.
+            let input = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
+                .compactMap { $0 as? ProjectEmojiInputField }.first)
+            input.showPicker = { presentations += 1 }
+            model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
+            await drainMainQueue()
+            #expect(model.editingProjectEmojiID == fixture.controller.project.id)
+            #expect(input.isPresented)
+            #expect(window.firstResponder === input.currentEditor())
+            #expect(presentations == index + 1)
+            let editor = try #require(input.currentEditor() as? NSTextView)
+            editor.insertText(emoji, replacementRange: NSRange(location: NSNotFound, length: 0))
+            // Selection is committed on the next main-queue turn, after the
+            // input system has finished delivering the composed character.
+            #expect(model.editingProjectEmojiID != nil)
+            await drainMainQueue()
+            #expect(fixture.controller.project.emoji == emoji)
+            #expect(model.editingProjectEmojiID == nil)
+            #expect(window.firstResponder === terminal)
+        }
+        let input = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
+            .compactMap { $0 as? ProjectEmojiInputField }.first)
+        input.showPicker = {}
+        model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
+        await drainMainQueue()
+        input.cancelOperation(nil)
+        await drainMainQueue()
+        #expect(model.editingProjectEmojiID == nil)
+        #expect(window.firstResponder === terminal)
+    }
+
     @Test func paneGrabHandleIsHittableThroughItsVisualPill() throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
@@ -545,10 +617,10 @@ struct ProjectWindowLayoutTests {
         let row = try #require(menu.items.last?.view as? TabColorPaletteRowView)
         let buttons = row.arrangedSubviews.compactMap { $0 as? NSButton }
         #expect(buttons.count == TerminalTabColor.allCases.count)
-        #expect(row.frame.width <= 260)
+        #expect(row.frame.width <= 320)
         #expect(row.frame.height >= 30)
         #expect(buttons.map(\.tag) == TerminalTabColor.allCases.map(\.rawValue))
-        #expect(buttons.allSatisfy { $0.image?.size == NSSize(width: 18, height: 18) })
+        #expect(buttons.allSatisfy { $0.image?.size == NSSize(width: 22, height: 22) })
         buttons[TerminalTabColor.green.rawValue].performClick(nil)
         #expect(window.tabColor == .green)
         buttons[TerminalTabColor.none.rawValue].performClick(nil)
