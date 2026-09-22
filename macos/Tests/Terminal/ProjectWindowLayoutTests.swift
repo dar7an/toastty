@@ -7,6 +7,49 @@ import Testing
 @Suite(.serialized)
 struct ProjectWindowLayoutTests {
     private static var emojiFixtureApp: Ghostty.App?
+    @Test func draggingInactiveProjectHighlightsItWithoutSwitchingTerminals() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let first = makeWindow(app, width: 220)
+        let second = makeWindow(app, width: 220)
+        defer {
+            for fixture in [first, second] {
+                fixture.controller.window = nil
+                fixture.window.close()
+            }
+        }
+        first.window.addTabbedWindow(second.window, ordered: .above)
+        second.window.makeKeyAndOrderFront(nil)
+        let group = try #require(second.window.tabGroup)
+        let model = group.tabSidebarModel
+        for fixture in [first, second] { fixture.split.bind(to: model, animated: false) }
+        await drainMainQueue()
+        let table = try #require(descendants(of: second.split.sidebarSplitItem.viewController.view)
+            .compactMap { $0 as? NSOutlineView }.first)
+        let sourceIndex = try #require(model.projects.firstIndex { $0.id == first.controller.project.id })
+        let sourceRow = try #require(table.rowView(atRow: sourceIndex, makeIfNecessary: true))
+        let source = try #require(descendants(of: sourceRow)
+            .compactMap { $0 as? ProjectSidebarRowInteraction.InteractionView }.first)
+        let selected = model.selectedProjectID
+        #expect(selected != first.controller.project.id)
+        for commit in [false, true] {
+            source.onDragBegan()
+            await drainMainQueue()
+            #expect(table.selectedRow == sourceIndex)
+            #expect(model.selectedProjectID == selected)
+            #expect(group.selectedWindow === second.window)
+            if commit {
+                #expect(model.acceptProjectDrop(.init(groupID: model.dragID, projectID: first.controller.project.id),
+                                               at: model.projects.count))
+            }
+            source.onDragEnded()
+            await drainMainQueue()
+            #expect(model.draggingProjectID == nil)
+            #expect(table.selectedRow == model.projects.firstIndex { $0.id == selected })
+            #expect(group.selectedWindow === second.window)
+        }
+    }
+
     @Test func sidebarRowsExposeNativeReorderDragAndInsertionGap() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
