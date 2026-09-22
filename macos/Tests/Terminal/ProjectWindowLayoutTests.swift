@@ -48,16 +48,16 @@ struct ProjectWindowLayoutTests {
         let choices = ["🧪", "👩🏽‍💻", "😆", "🏳️‍🌈"]
         for (index, emoji) in choices.enumerated() {
             // SwiftUI may replace the row's input anchor after metadata changes.
+            window.contentView?.layoutSubtreeIfNeeded()
             let input = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
                 .compactMap { $0 as? ProjectEmojiInputField }.first)
             input.showPicker = { presentations += 1 }
             model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-            await drainMainQueue()
+            let editor = try await waitForEmojiEditor(input)
             #expect(model.editingProjectEmojiID == fixture.controller.project.id)
             #expect(input.isPresented)
             #expect(window.firstResponder === input.currentEditor())
             #expect(presentations == index + 1)
-            let editor = try #require(input.currentEditor() as? NSTextView)
             editor.insertText(emoji, replacementRange: NSRange(location: NSNotFound, length: 0))
             // Selection is committed on the next main-queue turn, after the
             // input system has finished delivering the composed character.
@@ -71,7 +71,7 @@ struct ProjectWindowLayoutTests {
             .compactMap { $0 as? ProjectEmojiInputField }.first)
         input.showPicker = {}
         model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-        await drainMainQueue()
+        _ = try await waitForEmojiEditor(input)
         input.cancelOperation(nil)
         await drainMainQueue()
         #expect(model.editingProjectEmojiID == nil)
@@ -685,6 +685,17 @@ struct ProjectWindowLayoutTests {
         window.contentView = container
         window.configureProjectChrome(splitController: split)
         return WindowFixture(controller: controller, window: window, container: container, split: split)
+    }
+
+    private func waitForEmojiEditor(_ input: ProjectEmojiInputField) async throws -> NSTextView {
+        // SwiftUI layout and AppKit's field editor can finish in a later
+        // run-loop phase than a fixed number of main-queue callbacks.
+        for _ in 0..<100 {
+            if let editor = input.currentEditor() as? NSTextView,
+               input.window?.firstResponder === editor { return editor }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return try #require(input.currentEditor() as? NSTextView)
     }
 
     private func drainMainQueue() async {
