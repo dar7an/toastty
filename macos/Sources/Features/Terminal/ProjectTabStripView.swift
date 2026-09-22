@@ -261,18 +261,6 @@ struct ProjectTabCell: View {
         }
         .motionAnimation(.easeOut(duration: 0.1), value: isHovered)
         .motionAnimation(.easeOut(duration: 0.08), value: isPressed)
-        .overlay(alignment: .bottom) {
-            // A shape cue keeps selection unambiguous without relying on
-            // translucency or a user-assigned tab color.
-            if isSelected {
-                Capsule()
-                    .fill(Color.primary.opacity(0.55))
-                    .frame(width: 16, height: 2)
-                    .padding(.bottom, 1)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
         .overlay(alignment: .trailing) {
             if let color = row.tabColor.displayColor {
                 Circle().fill(Color(nsColor: color))

@@ -33,11 +33,11 @@ AppKit and SwiftUI APIs, without changing the deployment target.
 
 ## Craft and delight
 
-A quiet attached rail replaces the nested glass capsules. Selected tabs use an
-opaque system surface, a fine border, restrained corners, and a shape cue that
-is independent of user-assigned tab color. System semantic colors handle light,
-dark, and inactive appearances. Increased Contrast strengthens edges; Reduce
-Transparency makes the rail opaque.
+A quiet attached rail replaces the nested glass capsules. The selected tab is
+a raised opaque card in light and a light wash in dark, with a hairline border
+and a medium-weight title as the selection cues. System semantic colors handle
+light, dark, and inactive appearances. Increased Contrast strengthens edges;
+Reduce Transparency makes the rail opaque.
 
 A preview shows the existing configured shortcut, not a hard-coded binding.
 It prefers the space below its tab, flips above at screen edges, and adapts its
@@ -52,10 +52,13 @@ monitor origins, small displays, invalid geometry, and 1,148 edge positions.
 `ProjectTabCraftTests` covers native pointer lifecycle, activation-click safety,
 inactive-window previews, nonfinite rail widths, and pixel metrics.
 
-`ProjectTabChromeRenderingTests` renders the actual production components in an
-eight-case light/dark, contrast, opacity, and inactive-state matrix. It attaches
-synthetic-content images to the XCTest result bundle. These are review fixtures,
-not pixel-diff assertions and not a substitute for an interactive desktop pass.
+`ProjectTabChromeRenderingTests` renders the actual production components as
+light and dark review fixtures (selected, hovered, pressed, compact, keyboard
+focus, hover card) and attaches synthetic-content images to the XCTest result
+bundle. Contrast, Reduce Transparency, and inactive-window states are not
+injectable into an off-screen `NSHostingView`; the desktop acceptance pass
+below already covers them. These are review fixtures, not pixel-diff
+assertions and not a substitute for an interactive desktop pass.
 CI exports attachments in `macos-ui-review`; the original `.xcresult` remains in
 `macos-test-results`.
 
