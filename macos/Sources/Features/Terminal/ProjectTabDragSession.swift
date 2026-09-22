@@ -137,11 +137,7 @@ final class ProjectTabDragSession: NSObject {
     private func move(to point: NSPoint) {
         pointer = point
         updateTarget(at: point)
-        let window = sourceWindow.tabGroup?.selectedWindow ?? sourceWindow
-        let strip = window.toolbar?.items.first {
-            $0.itemIdentifier == ProjectToolbarDelegate.tabStripItemIdentifier
-        }?.view
-        let overRail = strip.flatMap(Self.screenFrame)?.insetBy(dx: 0, dy: -8).contains(point) ?? false
+        let overRail = railTarget(at: point) != nil
         let target: CGFloat = overRail ? 0 : 1
         if morph.target != target {
             morph.target = target
@@ -269,14 +265,9 @@ final class ProjectTabDragSession: NSObject {
                                                   into: target.surface, zone: target.zone)
             return true
         }
-        guard let target = railTarget(at: point, in: destinationWindow),
-              let sourceIndex = controller.projectTabWindows.firstIndex(of: sourceWindow),
-              let targetIndex = controller.projectTabWindows.firstIndex(of: target.cell.rootView.row.window)
-        else { return false }
-        let insertion = targetIndex + (target.after ? 1 : 0)
-        TerminalLayoutCoordinator.shared.reorderTab(controller.projectTabID,
-            toProjectIndex: insertion - (sourceIndex < insertion ? 1 : 0))
-        return true
+        guard let target = railTarget(at: point, in: destinationWindow) else { return false }
+        return TerminalLayoutCoordinator.shared.insertTab(
+            controller.projectTabID, beside: target.cell.rootView.row.window, after: target.after)
     }
 
     private func railTarget(
@@ -383,7 +374,6 @@ private final class ProjectTabDragPreview {
     private let tabSize: NSSize
     private let windowSize: NSSize
     private let appearance: NSAppearance
-    private let title: String
     private var finalImage: NSImage?
 
     init(source: ProjectTabCellHostingView) {
@@ -391,9 +381,9 @@ private final class ProjectTabDragPreview {
         tabImage = Self.snapshot(source)
         let window = source.rootView.row.window
         windowImage = ProjectTabSnapshot.image(of: window)
-        title = source.rootView.row.title
-        let scale = min(1, min(420 / max(1, window.frame.width), 320 / max(1, window.frame.height)))
-        windowSize = NSSize(width: window.frame.width * scale, height: window.frame.height * scale)
+        let contentSize = windowImage?.size ?? window.contentLayoutRect.size
+        let scale = min(1, min(420 / max(1, contentSize.width), 320 / max(1, contentSize.height)))
+        windowSize = NSSize(width: contentSize.width * scale, height: contentSize.height * scale)
         appearance = source.effectiveAppearance
     }
 
@@ -414,22 +404,10 @@ private final class ProjectTabDragPreview {
             shape.addClip()
             NSColor.windowBackgroundColor.setFill()
             shape.fill()
-            // A dragged tab represents one window, not a screenshot of the
-            // old multi-tab toolbar. Keep its title and terminal recognizable.
-            let headerHeight = min(tabSize.height, size.height)
-            windowImage?.draw(in: NSRect(x: 0, y: 0, width: size.width, height: size.height - headerHeight),
+            // The lifted preview is terminal content only. Do not invent a
+            // title bar or traffic lights above the captured split tree.
+            windowImage?.draw(in: rect,
                               from: .zero, operation: .sourceOver, fraction: progress)
-            let titleStyle = NSMutableParagraphStyle()
-            titleStyle.alignment = .center
-            titleStyle.lineBreakMode = .byTruncatingTail
-            (title as NSString).draw(in: NSRect(x: 42, y: size.height - 21, width: max(0, size.width - 84), height: 16),
-                                    withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                                                     .foregroundColor: NSColor.labelColor.withAlphaComponent(progress),
-                                                     .paragraphStyle: titleStyle])
-            NSColor.secondaryLabelColor.withAlphaComponent(progress * 0.5).setFill()
-            for x: CGFloat in [10, 20, 30] {
-                NSBezierPath(ovalIn: NSRect(x: x, y: size.height - 17, width: 6, height: 6)).fill()
-            }
             tabImage?.draw(in: NSRect(x: 0, y: size.height - tabSize.height,
                                      width: size.width, height: tabSize.height),
                            from: .zero, operation: .sourceOver, fraction: 1 - progress)

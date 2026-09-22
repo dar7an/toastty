@@ -20,6 +20,13 @@ AppKit and SwiftUI APIs, without changing the deployment target.
 
 - Selection still happens on release, not on initial press. Releasing outside
   cancels, and leaving/reentering updates pressed feedback.
+- Double-clicking a tab opens Rename Tab, including when the first click switches
+  native windows. Dragging cancels the pending double-click.
+- Tab widths do not depend on selection. Tabs share the available width and scroll
+  below a 120-point minimum, keeping labels and hit targets in place when switching.
+- Whole tabs can join another window's displayed project through its rail. The
+  existing terminal surfaces move with the tab. Lifted previews show only terminal
+  content, without an extra title bar.
 - Selecting a tab can activate an inactive window. Its close target cannot
   close a running terminal on the activation click.
 - The selected tab always exposes its close button. Other tabs reveal it on
@@ -33,11 +40,12 @@ AppKit and SwiftUI APIs, without changing the deployment target.
 
 ## Craft and delight
 
-A quiet attached rail replaces the nested glass capsules. The selected tab is
-a raised opaque card in light and a light wash in dark, with a hairline border
-and a medium-weight title as the selection cues. System semantic colors handle
-light, dark, and inactive appearances. Increased Contrast strengthens edges;
-Reduce Transparency makes the rail opaque.
+A recessed capsule rail groups the rounded tabs. Each 28-point tab sits inside
+the 32-point rail with a two-point inset on every side, preserving concentric
+curves. The selected tab has a raised opaque fill in light and a light wash in
+dark, with a hairline border and a medium-weight title as selection cues.
+System semantic colors handle light, dark, and inactive appearances. Increased
+Contrast strengthens edges; Reduce Transparency makes the rail opaque.
 
 A preview shows the existing configured shortcut, not a hard-coded binding.
 It prefers the space below its tab, flips above at screen edges, and adapts its
@@ -53,7 +61,7 @@ monitor origins, small displays, invalid geometry, and 1,148 edge positions.
 inactive-window previews, nonfinite rail widths, and pixel metrics.
 
 `ProjectTabChromeRenderingTests` renders the actual production components as
-light and dark review fixtures (selected, hovered, pressed, compact, keyboard
+light and dark review fixtures (selected, hovered, pressed, inactive, keyboard
 focus, hover card) and attaches synthetic-content images to the XCTest result
 bundle. Contrast, Reduce Transparency, and inactive-window states are not
 injectable into an off-screen `NSHostingView`; the desktop acceptance pass
@@ -69,7 +77,7 @@ Before a release, run the full acceptance list in `docs/development.md`, plus:
 2. Run VoiceOver and verify tab title, path, color, selection, and named actions.
 3. Open two windows, activate the inactive window over a close target, and
    confirm the shell survives. Repeat with the sidebar hidden and in full screen.
-4. Hover compact tabs, move quickly between them, type during the delay, and
+4. Hover crowded tabs, move quickly between them, type during the delay, and
    move a window between displays with different scale factors.
 5. Review the attachments and the full app in Golden Gate itself. The existing
    CI runner is macOS 26, so it cannot certify Golden Gate-specific rendering.

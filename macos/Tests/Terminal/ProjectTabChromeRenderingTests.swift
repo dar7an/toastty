@@ -50,21 +50,22 @@ private struct ChromeFixture: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Selected, hovered, compact, and keyboard focus")
+            Text("Selected, hovered, inactive, and keyboard focus")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 4) {
                 ProjectTabCell(row: row, isSelected: true, onSelect: { _ in },
-                               showSeparator: false, shortcutHint: "⌘1", width: 190)
+                               showSeparator: false, shortcutHint: "⌘1", width: 135)
                 ProjectTabCell(row: row, isSelected: false, onSelect: { _ in },
-                               showSeparator: false, width: 190, isHovered: true)
+                               showSeparator: false, width: 135, isHovered: true)
                 ProjectTabCell(row: row, isSelected: false, onSelect: { _ in },
-                               showSeparator: false, width: 54)
+                               showSeparator: false, width: 135)
                 Text("Focus")
                     .font(.system(size: 13))
-                    .frame(width: 100, height: ProjectTabStripView.cellHeight)
+                    .frame(width: 135, height: ProjectTabStripView.cellHeight)
                     .background { ProjectTabChrome(isSelected: true, isFocused: true) }
             }
+            .padding(.horizontal, ProjectTabStripView.railPadding / 2)
             .padding(.vertical, 2)
             .background { ProjectTabRailBackground() }
             HStack(alignment: .top, spacing: 16) {

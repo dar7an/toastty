@@ -110,6 +110,16 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.dar7an.toastty.project</string>
+			<key>UTTypeDescription</key>
+			<string>Toastty Project Identifier</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.dar7an.toastty.terminal-layout-id</string>
 			<key>UTTypeDescription</key>
 			<string>Toastty Terminal Layout Identifier</string>

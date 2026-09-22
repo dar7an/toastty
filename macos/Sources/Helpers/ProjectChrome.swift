@@ -8,8 +8,7 @@ enum ProjectChrome {
     /// strengthens under Increase Contrast automatically.
     static let separatorColor = Color(nsColor: .separatorColor)
 
-    /// Restrained corners keep chrome subordinate to terminal content.
-    static let tabCornerRadius: CGFloat = 7
+    /// Preview cards use a restrained corner radius; tabs use capsules.
     static let previewCornerRadius: CGFloat = 10
 
     /// One physical pixel at `displayScale` (`Environment(\.displayScale)`),

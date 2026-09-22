@@ -40,33 +40,24 @@ struct ProjectTabStripTests {
             selectedIndex: 0) == [796])
     }
 
-    @Test func selectedTabReceivesNativeWidthEmphasis() {
-        let widths = ProjectTabStripView.cellWidths(
-            available: 800,
-            count: 4,
-            selectedIndex: 1)
-        #expect(widths == [189, 229, 189, 189])
-        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding <= 800)
+    @Test(arguments: [2, 4, 10, 20])
+    func switchingTabsNeverChangesCellWidths(count: Int) {
+        let baseline = ProjectTabStripView.cellWidths(available: 800, count: count, selectedIndex: nil)
+        for selection in 0..<count {
+            #expect(ProjectTabStripView.cellWidths(
+                available: 800, count: count, selectedIndex: selection) == baseline)
+        }
+        #expect(Set(baseline).count == 1)
+        #expect(baseline.allSatisfy { $0 >= ProjectTabStripView.minimumCellWidth })
     }
 
-    @Test func tenTabsCompressAroundSelectedTab() {
-        let widths = ProjectTabStripView.cellWidths(
-            available: 700,
-            count: 10,
-            selectedIndex: 4)
-        #expect(widths[4] == ProjectTabStripView.selectedPreferredWidth)
-        #expect(widths.filter { $0 == 56 }.count == 9)
-        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding <= 700)
-    }
-
-    @Test func manyTabsOverflowOnlyAfterCompactLayout() {
-        let widths = ProjectTabStripView.cellWidths(
-            available: 800,
-            count: 20,
-            selectedIndex: 7)
-        #expect(widths[7] == ProjectTabStripView.minimumSelectedWidth)
-        #expect(widths.filter { $0 == ProjectTabStripView.compactCellWidth }.count == 19)
-        #expect(widths.reduce(0, +) + ProjectTabStripView.railPadding > 800)
+    @Test func tabsFillAvailableSpaceThenScrollWithReadableTitles() {
+        let normal = ProjectTabStripView.cellWidths(available: 800, count: 4, selectedIndex: 1)
+        #expect(normal == [199, 199, 199, 199])
+        #expect(normal.reduce(0, +) + ProjectTabStripView.railPadding == 800)
+        let crowded = ProjectTabStripView.cellWidths(available: 700, count: 10, selectedIndex: 4)
+        #expect(crowded == Array(repeating: 120, count: 10))
+        #expect(crowded.reduce(0, +) > 700)
     }
 
     @Test func degenerateInputsStayAtMinimum() {
@@ -77,13 +68,13 @@ struct ProjectTabStripTests {
         #expect(ProjectTabStripView.cellWidths(
             available: 0,
             count: 1,
-            selectedIndex: 0) == [ProjectTabStripView.minimumSelectedWidth])
+            selectedIndex: 0) == [ProjectTabStripView.minimumCellWidth])
         #expect(ProjectTabStripView.cellWidths(
             available: -50,
             count: 2,
             selectedIndex: nil) == [
-                ProjectTabStripView.compactCellWidth,
-                ProjectTabStripView.compactCellWidth,
+                ProjectTabStripView.minimumCellWidth,
+                ProjectTabStripView.minimumCellWidth,
             ])
     }
 

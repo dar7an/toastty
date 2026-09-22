@@ -311,6 +311,7 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
+            .flexibleSpace,
             Self.sidebarToggleItemIdentifier,
             .sidebarTrackingSeparator,
             Self.tabStripItemIdentifier,

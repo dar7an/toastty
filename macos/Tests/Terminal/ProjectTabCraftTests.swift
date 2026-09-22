@@ -6,11 +6,60 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ProjectTabCraftTests {
+    @Test func doubleClickHistorySurvivesHostingViewChangesButNotDrags() {
+        let fixture = Fixture { _ in }
+        defer { fixture.close() }
+        let model = fixture.window.projectSidebarModel
+        let id = ObjectIdentifier(fixture.window)
+        #expect(!model.recordTabClick(id, timestamp: 1))
+        #expect(model.recordTabClick(id, timestamp: 1 + NSEvent.doubleClickInterval / 2))
+        #expect(!model.recordTabClick(id, timestamp: 2))
+        model.cancelTabClick()
+        #expect(!model.recordTabClick(id, timestamp: 2 + NSEvent.doubleClickInterval / 2))
+        #expect(!model.recordTabClick(id, timestamp: 10))
+    }
+
+    @Test func emojiInputCommitsAfterInsertionReturnsAndIgnoresCancelledInsertion() async {
+        let input = ProjectEmojiInputField(frame: .zero)
+        var selected: [String] = []
+        var cancellations = 0
+        input.onSelect = { selected.append($0) }
+        input.onCancel = { cancellations += 1 }
+        input.setPresented(true)
+        input.stringValue = "ordinary text"
+        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
+        #expect(selected.isEmpty)
+        input.stringValue = "👩🏽‍💻"
+        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
+        // Mutating the sidebar or its first responder inside this callback can
+        // reenter the system input method while Character Viewer is inserting.
+        #expect(selected.isEmpty)
+        #expect(input.isEditable)
+        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
+        input.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: input))
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(selected == ["👩🏽‍💻"])
+        #expect(!input.isPresented)
+        #expect(!input.isEditable)
+        #expect(cancellations == 0)
+        input.setPresented(true)
+        input.cancelOperation(nil)
+        input.stringValue = "😀"
+        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(selected == ["👩🏽‍💻"])
+        #expect(cancellations == 1)
+    }
+
     @Test func nonfiniteRailWidthsFallBackToUsableCells() {
         for available: CGFloat in [.nan, .infinity, -.infinity] {
             let widths = ProjectTabStripView.cellWidths(available: available, count: 3, selectedIndex: 1)
             let allFinite = widths.allSatisfy(\.isFinite)
-            #expect(widths == [54, 120, 54])
+            #expect(widths == [120, 120, 120])
             #expect(allFinite)
         }
     }

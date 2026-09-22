@@ -8,17 +8,12 @@ import SwiftUI
 /// `NSToolbar` hosting view (workstream C): it depends on neither parent
 /// layout, has a fixed height (``stripHeight``) and a flexible width.
 ///
-/// The selected tab keeps its title while inactive tabs compress toward
-/// icon-only cells. The rail scrolls only after the selected tab and compact
-/// inactive cells no longer fit.
+/// Tabs share a stable width regardless of selection. The rail scrolls once
+/// there is no longer enough space to keep every title readable.
 struct ProjectTabStripView: View {
-    static let cellShape = RoundedRectangle(cornerRadius: ProjectChrome.tabCornerRadius, style: .continuous)
+    static let cellShape = Capsule()
 
-    static let compactCellWidth: CGFloat = 54
-    static let minimumSelectedWidth: CGFloat = 120
-    static let selectedPreferredWidth: CGFloat = 190
-    static let selectedWidthBonus: CGFloat = 40
-    static let compactLabelThreshold: CGFloat = 84
+    static let minimumCellWidth: CGFloat = 120
 
     /// Interior horizontal padding of the tab row (2pt per side).
     static let railPadding: CGFloat = 4
@@ -34,37 +29,12 @@ struct ProjectTabStripView: View {
     static func cellWidths(
         available: CGFloat,
         count: Int,
-        selectedIndex: Int?
+        selectedIndex _: Int?
     ) -> [CGFloat] {
         guard count > 0 else { return [] }
         let interior = available.isFinite ? max(0, floor(available - railPadding)) : 0
-        guard count > 1 else {
-            return [max(minimumSelectedWidth, interior)]
-        }
-        guard let selectedIndex, (0..<count).contains(selectedIndex) else {
-            let width = max(compactCellWidth, floor(interior / CGFloat(count)))
-            return Array(repeating: width, count: count)
-        }
-
-        let equalBase = floor((interior - selectedWidthBonus) / CGFloat(count))
-        let equalSelected = equalBase + selectedWidthBonus
-        let compactPreservingSelected = min(
-            selectedPreferredWidth,
-            interior - compactCellWidth * CGFloat(count - 1))
-        var selectedWidth = max(equalSelected, compactPreservingSelected)
-        var inactiveWidth = floor(
-            (interior - selectedWidth) / CGFloat(count - 1))
-
-        if inactiveWidth < compactCellWidth {
-            inactiveWidth = compactCellWidth
-            selectedWidth = max(
-                minimumSelectedWidth,
-                interior - inactiveWidth * CGFloat(count - 1))
-        }
-
-        var widths = Array(repeating: inactiveWidth, count: count)
-        widths[selectedIndex] = max(minimumSelectedWidth, selectedWidth)
-        return widths
+        let width = max(minimumCellWidth, floor(interior / CGFloat(count)))
+        return Array(repeating: width, count: count)
     }
 
     @ObservedObject var model: TabSidebarModel
@@ -111,7 +81,6 @@ struct ProjectTabStripView: View {
                         }
                     }
                     .modifier(ProjectTabScrollTargets())
-                    .motionAnimation(.easeOut(duration: 0.18), value: model.selection)
                     .motionAnimation(.easeOut(duration: 0.18), value: model.liftedTabID)
                     .padding(.horizontal, Self.railPadding / 2)
                     .padding(.vertical, (Self.stripHeight - Self.cellHeight) / 2)
@@ -190,26 +159,15 @@ struct ProjectTabCell: View {
         let isCloseVisible = isSelected || isHovered || selectionFocused || closeFocused
         return ZStack(alignment: .leading) {
             Button { onSelect(row.id) } label: {
-                Group {
-                    if !isSelected && width < ProjectTabStripView.compactLabelThreshold {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            // At compact widths the close target shares the
-                            // icon's space. Never draw both on top of each other.
-                            .opacity(isCloseVisible ? 0 : 1)
-                    } else {
-                        Text(row.title)
-                            .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: ProjectTabStripView.cellHeight)
-                .contentShape(ProjectTabStripView.cellShape)
+                Text(row.title)
+                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, ProjectTabStripView.closeButtonWidth + 8)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: ProjectTabStripView.cellHeight)
+                    .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
             .focused($selectionFocused)
@@ -221,7 +179,7 @@ struct ProjectTabCell: View {
                 (row.window.windowController as? TerminalController)?.promptTabTitle()
             }
             .accessibilityHint([row.pwd, shortcutHint,
-                                "Drag to reorder this tab or pull it into a new window."]
+                                "Double-click to rename. Drag to reorder or move to another window."]
                 .compactMap { $0 }.joined(separator: "\n"))
             .accessibilityLabel(row.title)
             .accessibilityValue(row.tabColor == .none ? "" : "Color \(row.tabColor.localizedName)")
@@ -372,7 +330,7 @@ private struct ProjectTabCellDropDelegate: DropDelegate {
         case .tab(let sourceID):
             switch position {
             case .before, .after:
-                reorderTab(sourceID, into: target, after: position == .after)
+                coordinator.insertTab(sourceID, beside: row.window, after: position == .after)
             case .idle:
                 break
             }
@@ -393,23 +351,6 @@ private struct ProjectTabCellDropDelegate: DropDelegate {
         }
     }
 
-    private func reorderTab(
-        _ sourceID: UUID,
-        into target: TerminalController,
-        after: Bool
-    ) {
-        guard let source = TerminalController.all.first(where: { $0.projectTabID == sourceID }),
-              let sourceWindow = source.window,
-              let targetIndex = target.projectTabWindows.firstIndex(of: row.window),
-              let sourceIndex = target.projectTabWindows.firstIndex(of: sourceWindow),
-              source.project.id == target.project.id,
-              sourceWindow.tabGroup === row.window.tabGroup,
-              sourceWindow !== row.window else { return }
-
-        let insertionIndex = after ? targetIndex + 1 : targetIndex
-        let finalIndex = insertionIndex - (sourceIndex < insertionIndex ? 1 : 0)
-        TerminalLayoutCoordinator.shared.reorderTab(sourceID, toProjectIndex: finalIndex)
-    }
 }
 
 private struct ProjectTabStripDropDelegate: DropDelegate {
@@ -458,8 +399,7 @@ private struct ProjectTabStripDropDelegate: DropDelegate {
         guard let target = targetRow.window.windowController as? TerminalController else { return }
         switch payload {
         case .tab(let sourceID):
-            TerminalLayoutCoordinator.shared.reorderTab(
-                sourceID, toProjectIndex: max(0, target.projectTabWindows.count - 1))
+            TerminalLayoutCoordinator.shared.insertTab(sourceID, beside: targetRow.window, after: true)
         case .surface(let surfaceID):
             TerminalLayoutCoordinator.shared.extractSurface(
                 surfaceID, beside: target.projectTabID, insertionIndex: target.projectTabWindows.count)
@@ -554,7 +494,11 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
                 (rootView.row.window.windowController as? TerminalController)?.closeTab(nil)
             }
         } else {
-            rootView.onSelect(rootView.row.id)
+            if rootView.row.window.projectSidebarModel.recordTabClick(rootView.row.id, timestamp: event.timestamp) {
+                (rootView.row.window.windowController as? TerminalController)?.promptTabTitle()
+            } else {
+                rootView.onSelect(rootView.row.id)
+            }
         }
     }
 
@@ -563,10 +507,11 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
               rootView.row.window.windowController is TerminalController else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - origin.x, point.y - origin.y) >= 5 else { return }
+        rootView.row.window.projectSidebarModel.cancelTabClick()
         // Stay attached to the rail for horizontal reordering. Pulling beyond
         // the tab row lifts a window preview into a continuous drag gesture,
         // which can still land on a terminal pane or return to the rail.
-        if abs(point.y - origin.y) <= Self.tearOffDistance {
+        if abs(point.y - origin.y) <= Self.tearOffDistance && isWithinReorderRail(event) {
             if reorderGesture == nil {
                 reorderGesture = ProjectTabReorderGesture(source: self)
                 reorderGesture?.onCancel = { [weak self] in
@@ -590,6 +535,18 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
         mouseDownPoint = nil
         setHovered(false)
         ProjectTabDragSession.begin(from: self, event: event, grabPoint: origin)
+    }
+
+    private func isWithinReorderRail(_ event: NSEvent) -> Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if view is ProjectTabStripHostingView {
+                let point = view.convert(event.locationInWindow, from: nil)
+                return point.x >= view.bounds.minX - 8 && point.x <= view.bounds.maxX + 8
+            }
+            ancestor = view.superview
+        }
+        return true
     }
 
     @discardableResult
