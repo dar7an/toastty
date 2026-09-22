@@ -12,7 +12,7 @@ import SwiftUI
 /// icon-only cells. The rail scrolls only after the selected tab and compact
 /// inactive cells no longer fit.
 struct ProjectTabStripView: View {
-    static let cellShape = Capsule()
+    static let cellShape = RoundedRectangle(cornerRadius: ProjectChrome.tabCornerRadius, style: .continuous)
 
     static let compactCellWidth: CGFloat = 54
     static let minimumSelectedWidth: CGFloat = 120
@@ -29,7 +29,7 @@ struct ProjectTabStripView: View {
 
     /// Width always reserved for the close button, even while hidden, so
     /// labels never jump when it appears.
-    static let closeButtonWidth: CGFloat = 20
+    static let closeButtonWidth: CGFloat = 22
 
     static func cellWidths(
         available: CGFloat,
@@ -37,7 +37,7 @@ struct ProjectTabStripView: View {
         selectedIndex: Int?
     ) -> [CGFloat] {
         guard count > 0 else { return [] }
-        let interior = max(0, floor(available - railPadding))
+        let interior = available.isFinite ? max(0, floor(available - railPadding)) : 0
         guard count > 1 else {
             return [max(minimumSelectedWidth, interior)]
         }
@@ -176,6 +176,8 @@ struct ProjectTabCell: View {
     var shortcutHint: String?
     let width: CGFloat
     var isHovered = false
+    var isPressed = false
+    @FocusState private var selectionFocused: Bool
     @FocusState private var closeFocused: Bool
     @Environment(\.displayScale) private var displayScale
     @State private var dropState: ProjectTabDropState = .idle
@@ -185,7 +187,7 @@ struct ProjectTabCell: View {
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
         // button must not shift the label, including on the selected tab.
-        let isCloseVisible = isHovered || closeFocused
+        let isCloseVisible = isSelected || isHovered || selectionFocused || closeFocused
         return ZStack(alignment: .leading) {
             Button { onSelect(row.id) } label: {
                 Group {
@@ -193,6 +195,9 @@ struct ProjectTabCell: View {
                         Image(systemName: "terminal")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
+                            // At compact widths the close target shares the
+                            // icon's space. Never draw both on top of each other.
+                            .opacity(isCloseVisible ? 0 : 1)
                     } else {
                         Text(row.title)
                             .font(.system(size: 13, weight: isSelected ? .medium : .regular))
@@ -207,6 +212,14 @@ struct ProjectTabCell: View {
                 .contentShape(ProjectTabStripView.cellShape)
             }
             .buttonStyle(.plain)
+            .focused($selectionFocused)
+            .accessibilityIdentifier("project-tab")
+            .accessibilityAction(named: Text("Close Tab")) {
+                (row.window.windowController as? TerminalController)?.closeTab(nil)
+            }
+            .accessibilityAction(named: Text("Rename Tab")) {
+                (row.window.windowController as? TerminalController)?.promptTabTitle()
+            }
             .accessibilityHint([row.pwd, shortcutHint,
                                 "Drag to reorder this tab or pull it into a new window."]
                 .compactMap { $0 }.joined(separator: "\n"))
@@ -220,7 +233,13 @@ struct ProjectTabCell: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: ProjectTabStripView.closeButtonWidth, height: 22)
-                    .contentShape(Circle())
+                    .background {
+                        if closeFocused {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Color(nsColor: .keyboardFocusIndicatorColor), lineWidth: 2)
+                        }
+                    }
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .opacity(isCloseVisible ? 1 : 0)
@@ -229,16 +248,19 @@ struct ProjectTabCell: View {
             .focused($closeFocused)
             .help("Close Tab")
             .accessibilityLabel("Close \(row.title)")
+            .accessibilityIdentifier("project-tab-close")
             .padding(.leading, 4)
         }
         .frame(width: width, height: ProjectTabStripView.cellHeight)
         .background {
-            if isSelected {
-                Color.clear.modifier(ProjectGlass(shape: ProjectTabStripView.cellShape, interactive: true))
-            } else if isHovered {
-                ProjectTabStripView.cellShape.fill(.primary.opacity(0.06))
-            }
+            ProjectTabChrome(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                isPressed: isPressed,
+                isFocused: selectionFocused)
         }
+        .motionAnimation(.easeOut(duration: 0.1), value: isHovered)
+        .motionAnimation(.easeOut(duration: 0.08), value: isPressed)
         .overlay(alignment: .trailing) {
             if let color = row.tabColor.displayColor {
                 Circle().fill(Color(nsColor: color))
@@ -483,7 +505,12 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     private var pressedClose = false
     private var reorderGesture: ProjectTabReorderGesture?
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        // Click-through may select a tab, but must not destroy a terminal
+        // when the user is only trying to activate an inactive window.
+        guard let event else { return false }
+        return !closeButtonRect.contains(convert(event.locationInWindow, from: nil))
+    }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow !== window {
@@ -491,6 +518,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
             reorderGesture?.finish(commit: false, animated: false)
             reorderGesture = nil
             mouseDownPoint = nil
+            setHovered(false)
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -512,13 +540,14 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     override func mouseUp(with event: NSEvent) {
         guard mouseDownPoint != nil else { return }
         mouseDownPoint = nil
+        let point = convert(event.locationInWindow, from: nil)
+        setHovered(bounds.contains(point))
         if let reorderGesture {
             self.reorderGesture = nil
             reorderGesture.finish(commit: true)
             setHovered(false)
             return
         }
-        let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         if pressedClose {
             if closeButtonRect.contains(point) {
@@ -597,6 +626,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     func update(_ cell: ProjectTabCell) {
         var cell = cell
         cell.isHovered = tabIsHovered
+        cell.isPressed = tabIsHovered && mouseDownPoint != nil && reorderGesture == nil && !pressedClose
         rootView = cell
         ProjectTabHoverPreview.shared.validate(self)
     }
@@ -605,9 +635,18 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     /// Restrict preview placement and hover tracking to this tab's visible part.
     var hoverPreviewRect: NSRect { bounds.intersection(visibleRect) }
 
+    /// In full screen AppKit may host the toolbar in an auxiliary window.
+    /// The selected terminal, not that non-key host, owns interaction focus.
+    var previewInteractionWindow: NSWindow? {
+        guard let window else { return nil }
+        if window.isKeyWindow { return window }
+        return rootView.row.window.tabGroup?.selectedWindow ?? window
+    }
+
     var canShowHoverPreview: Bool {
         !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
-            window?.isVisible == true && window?.attachedSheet == nil &&
+            window?.isVisible == true &&
+            previewInteractionWindow?.attachedSheet == nil &&
             !isHiddenOrHasHiddenAncestor && !hoverPreviewRect.isEmpty &&
             rootView.row.window.projectSidebarModel.liftedTabID == nil
     }
@@ -640,9 +679,11 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
     }
 
     fileprivate func setHovered(_ hovered: Bool) {
-        guard tabIsHovered != hovered else { return }
+        let pressed = hovered && mouseDownPoint != nil && reorderGesture == nil && !pressedClose
+        guard tabIsHovered != hovered || rootView.isPressed != pressed else { return }
         tabIsHovered = hovered
         rootView.isHovered = hovered
+        rootView.isPressed = pressed
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -764,63 +805,6 @@ final class ProjectTabMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func invoke() { handler() }
-}
-
-/// A continuous recessed track groups tabs like Finder's native tab row.
-/// Keep the material clipped to the rail and let the selected tab retain
-/// its own system glass surface inside the two-point inset.
-private struct ProjectTabRailBackground: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.displayScale) private var displayScale
-
-    var body: some View {
-        Group {
-            if reduceTransparency || contrast == .increased {
-                Color(nsColor: .controlBackgroundColor)
-            } else {
-                VisualEffectBackground(material: .titlebar, blendingMode: .withinWindow)
-            }
-        }
-        .overlay(.primary.opacity(0.04))
-        .clipShape(Capsule())
-        .overlay {
-            Capsule().strokeBorder(
-                ProjectChrome.separatorColor,
-                lineWidth: contrast == .increased ? 1 : ProjectChrome.hairline(displayScale: displayScale))
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// System Liquid Glass on macOS 26+, material fallback below. Never
-/// simulated with gradients or shadows.
-struct ProjectGlass<S: InsettableShape>: ViewModifier {
-    let shape: S
-    var interactive = false
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    func body(content: Content) -> some View {
-        if reduceTransparency || contrast == .increased {
-            content
-                .background(Color(nsColor: .controlBackgroundColor), in: shape)
-                .overlay(shape.strokeBorder(.primary.opacity(0.3), lineWidth: 1))
-        } else {
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                content.glassEffect(
-                    .regular.interactive(interactive),
-                    in: shape)
-            } else {
-                content.background(.regularMaterial, in: shape)
-            }
-#else
-            content.background(.regularMaterial, in: shape)
-#endif
-        }
-    }
 }
 
 private struct ProjectTabScrollTargets: ViewModifier {

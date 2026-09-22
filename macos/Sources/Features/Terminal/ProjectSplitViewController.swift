@@ -387,7 +387,6 @@ final class ProjectToolbarDelegate: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Project Tabs"
             item.paletteLabel = "Project Tabs"
-            item.toolTip = "Project tabs"
             item.view = hosting
             item.autovalidates = false
             item.isEnabled = true

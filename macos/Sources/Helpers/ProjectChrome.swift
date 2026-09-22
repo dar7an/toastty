@@ -8,10 +8,15 @@ enum ProjectChrome {
     /// strengthens under Increase Contrast automatically.
     static let separatorColor = Color(nsColor: .separatorColor)
 
+    /// Restrained corners keep chrome subordinate to terminal content.
+    static let tabCornerRadius: CGFloat = 7
+    static let previewCornerRadius: CGFloat = 10
+
     /// One physical pixel at `displayScale` (`Environment(\.displayScale)`),
     /// so the line is a true hairline on Retina instead of a 1pt rule.
     static func hairline(displayScale: CGFloat) -> CGFloat {
-        1 / max(displayScale, 1)
+        guard displayScale.isFinite else { return 1 }
+        return 1 / max(displayScale, 1)
     }
 }
 

@@ -95,6 +95,9 @@ struct ProjectWindowLayoutTests {
         let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
         let tabWindow = try #require(tab.window)
         let preview = ProjectTabHoverPreview()
+        // Activation is covered by ProjectTabCraftTests; this test owns
+        // presentation and placement, which a test host cannot key-gate.
+        preview.isInteractionWindowActive = { _ in true }
         defer {
             preview.dismiss()
             tab.window = nil
@@ -149,6 +152,9 @@ struct ProjectWindowLayoutTests {
         let selectedWindow = try #require(third.window)
         selectedWindow.makeKeyAndOrderFront(nil)
         let preview = ProjectTabHoverPreview()
+        // Activation is covered by ProjectTabCraftTests; this test owns
+        // presentation and placement, which a test host cannot key-gate.
+        preview.isInteractionWindowActive = { _ in true }
         defer {
             preview.dismiss()
             for controller in [third, second, fixture.controller] {
