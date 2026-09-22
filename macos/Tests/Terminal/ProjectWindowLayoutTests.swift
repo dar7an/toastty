@@ -652,6 +652,7 @@ struct ProjectWindowLayoutTests {
         #expect(ProjectTabReorderGesture.destination(source: 0, translation: 54, widths: [54, 54]) == 1)
     }
 
+    /// Verifies that the tab menu embeds a compact, accessible color palette.
     @Test func tabContextMenuUsesCompactAccessiblePalette() throws {
         let window = TerminalWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -671,6 +672,7 @@ struct ProjectWindowLayoutTests {
         #expect(window.tabColor == .none)
     }
 
+    /// Verifies that the tab menu offers valid moves and keeps close actions last.
     @Test func tabContextMenuShowsOnlyAvailableProjectMovesAndClosesLast() throws {
         let config = try TemporaryConfig(
             "macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
@@ -706,6 +708,7 @@ struct ProjectWindowLayoutTests {
         let ordered = controllers[0].projectTabWindows
         #expect(ordered.count == 3)
 
+        /// Returns the actionable text-item titles in a window's tab menu.
         func titles(for window: NSWindow) -> [String] {
             makeProjectTabContextMenu(for: window).items.compactMap { item in
                 item.isSeparatorItem || item.view != nil ? nil : item.title
@@ -825,5 +828,6 @@ struct ProjectWindowLayoutTests {
 
 private final class ProjectTabMenuTestController: TerminalController {
     let testUndoManager = ExpiringUndoManager()
+    /// Exposes the test-owned undo manager to tab movement operations.
     override var undoManager: ExpiringUndoManager? { testUndoManager }
 }

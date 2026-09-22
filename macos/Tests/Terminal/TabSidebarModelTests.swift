@@ -508,6 +508,7 @@ struct TabSidebarModelTests {
         #expect(unknownColor.nameOverride == "Newer")
     }
 
+    /// Verifies that project appearance changes affect only matching project tabs.
     @Test func projectAppearanceUpdatesMatchingTabsOnly() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)

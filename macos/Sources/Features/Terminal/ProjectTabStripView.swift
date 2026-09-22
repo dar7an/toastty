@@ -153,6 +153,8 @@ struct ProjectTabCell: View {
     @StateObject private var dragSession = TerminalLayoutDragSession()
     @ObservedObject private var tabDragFeedback = ProjectTabDragSession.feedback
 
+    /// Renders the tab cell and exposes only the movement actions available
+    /// for the tab's current position.
     var body: some View {
         // Reserve equal space on both sides of the title. Revealing a close
         // button must not shift the label, including on the selected tab.
@@ -278,23 +280,28 @@ struct ProjectTabCell: View {
 struct ProjectTabMovement {
     let window: NSWindow
 
+    /// The terminal controller that owns the target window.
     private var controller: TerminalController? {
         window.windowController as? TerminalController
     }
 
+    /// The target window's position among tabs in the same project.
     private var currentIndex: Int? {
         controller?.projectTabWindows.firstIndex(of: window)
     }
 
+    /// The number of tabs that belong to the target window's project.
     var count: Int {
         controller?.projectTabWindows.count ?? 0
     }
 
+    /// Returns whether moving by the given relative offset stays in the project.
     func canMove(by offset: Int) -> Bool {
         guard let currentIndex else { return false }
         return (0..<count).contains(currentIndex + offset)
     }
 
+    /// Moves the target tab by the given relative offset when the destination exists.
     func move(by offset: Int) {
         guard let controller, let currentIndex, canMove(by: offset) else { return }
         TerminalLayoutCoordinator.shared.reorderTab(

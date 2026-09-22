@@ -844,6 +844,7 @@ struct ProjectSidebarListView: View {
     @ObservedObject var model: TabSidebarModel
     let controller: TerminalController
 
+    /// Renders the project list and its persistent new-project control.
     var body: some View {
         VStack(spacing: 0) {
             List(selection: Binding(get: { model.highlightedProjectID }, set: {
