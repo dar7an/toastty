@@ -1,7 +1,7 @@
 name: Toastty macOS
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, "codex/**"]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -18,9 +18,12 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: Validate upstream and toolchain pins
+        id: upstream
+        run: python3 scripts/upstream.py check --github-output "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
-          version: 0.16.0
+          version: ${{ steps.upstream.outputs.zig-version }}
       - name: Install macOS development tools
         run: brew install nushell swiftlint
       - name: Lint changed Swift files
@@ -37,7 +40,7 @@ jobs:
           python3 scripts/bundle-notices.py
           git diff --exit-code -- macos/Sources/ThirdPartyNotices.txt
           git diff --check
-      - name: Test nightly packaging
+      - name: Test maintenance and nightly packaging scripts
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Build and run unit tests
         run: scripts/test.sh
@@ -64,3 +67,24 @@ jobs:
           name: macos-test-results
           path: ~/Library/Developer/Xcode/DerivedData/Ghostty-*/Logs/Test/*.xcresult
           if-no-files-found: warn
+  engine-tests:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate the adopted upstream commit and toolchain
+        id: upstream
+        run: python3 scripts/upstream.py check --verify-history --github-output "$GITHUB_OUTPUT"
+      - name: Check the complete PR or push for engine changes
+        id: scope
+        run: python3 scripts/upstream.py ci-scope --github-output "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        if: steps.scope.outputs.engine-tests == 'true'
+        with:
+          version: ${{ steps.upstream.outputs.zig-version }}
+      - name: Run core and libghostty-vt tests
+        if: steps.scope.outputs.engine-tests == 'true'
+        run: scripts/test-engine.sh
