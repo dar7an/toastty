@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+required_zig="$(python3 scripts/upstream.py zig-version)"
+[[ "$(zig version)" == "$required_zig" ]] || { echo "Toastty requires Zig $required_zig." >&2; exit 1; }
 zig build -Demit-macos-app=false -Doptimize=ReleaseFast
 macos/build.nu --action build-for-testing
 python3 scripts/prepare-test-run.py

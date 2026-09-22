@@ -39,9 +39,12 @@ jobs:
           ref: ${{ env.NIGHTLY_SHA }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Validate upstream and toolchain pins
+        id: upstream
+        run: python3 scripts/upstream.py check --verify-history --github-output "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
-          version: 0.16.0
+          version: ${{ steps.upstream.outputs.zig-version }}
       - name: Install macOS development tools
         run: brew install nushell swiftlint
       - name: Require Toastty update signing key

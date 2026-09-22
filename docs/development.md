@@ -3,7 +3,7 @@
 ## Requirements
 
 - macOS with full Xcode 26 or later selected by `xcode-select`.
-- Zig **0.16.0**, matching `build.zig.zon`.
+- The exact Zig version in [`upstream.json`](../upstream.json), matching `build.zig.zon`.
 - Nushell (`nu`), SwiftLint, Python 3, and Git on `PATH`.
 - Network access for pinned Zig and Swift package dependencies on the first build.
 
@@ -68,15 +68,15 @@ Manual acceptance before releases:
 
 ## Repository map
 
-| Path | Responsibility |
-| --- | --- |
-| `macos/Sources/Features/Terminal/` | Workspace model, sidebar, tab rail, windows |
-| `macos/Sources/Features/Splits/` | Pane layout, drag/drop, snapping |
-| `macos/Tests/` | Swift model and native-layout regression tests |
-| `src/`, `include/`, `pkg/` | Inherited Ghostty engine, C API, dependency recipes |
-| `docs/`, `scripts/` | Toastty contributor and release entry points |
-| `docs/branding/` | Toastty icon master and generation provenance |
-| `licenses/` | Retained third-party license texts |
+| Path                               | Responsibility                                      |
+| ---------------------------------- | --------------------------------------------------- |
+| `macos/Sources/Features/Terminal/` | Workspace model, sidebar, tab rail, windows         |
+| `macos/Sources/Features/Splits/`   | Pane layout, drag/drop, snapping                    |
+| `macos/Tests/`                     | Swift model and native-layout regression tests      |
+| `src/`, `include/`, `pkg/`         | Inherited Ghostty engine, C API, dependency recipes |
+| `docs/`, `scripts/`                | Toastty contributor and release entry points        |
+| `docs/branding/`                   | Toastty icon master and generation provenance       |
+| `licenses/`                        | Retained third-party license texts                  |
 
 Linux packaging and the upstream Zig build graph remain in the source tree for
 upstream compatibility. They are not Toastty release targets. Use the Toastty
@@ -90,6 +90,8 @@ work. `docs/upstream/` preserves selected original project documents; Git histor
 preserves all upstream source and authorship.
 
 Keep `origin` pointed at `dar7an/toastty` and `upstream` at `ghostty-org/ghostty`.
-Review upstream changes on a separate branch. Preserve the license, source
-headers, terminal behavior, and dependency pins; rerun the checks above before
-merging. Do not blindly restore upstream appcast URLs or publishing workflows.
+The current adopted base and Zig version are recorded in
+[`upstream.json`](../upstream.json). Follow the [upstream maintenance workflow](upstream-maintenance.md)
+for weekly reports, reviewed engine upgrades, engine tests, and UI acceptance.
+Preserve the license, source headers, terminal behavior, and dependency pins;
+do not restore upstream appcast URLs or publishing workflows.
