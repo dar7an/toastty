@@ -17,13 +17,23 @@ final class ProjectTabHoverPreview: NSObject {
     var isVisible: Bool { panel?.isVisible == true }
     var isPending: Bool { timer != nil }
 
+    /// Previews belong to the active window only. Injectable so placement
+    /// tests can run without owning application activation.
+    var isInteractionWindowActive: (NSWindow) -> Bool = { $0.isKeyWindow }
+
+    private func canPresent(_ cell: ProjectTabCellHostingView, at point: NSPoint? = nil) -> Bool {
+        guard let window = cell.previewInteractionWindow, isInteractionWindowActive(window) else { return false }
+        if let point { return cell.canShowHoverPreview(at: point) }
+        return cell.canShowHoverPreview
+    }
+
     init(delay: TimeInterval = 0.5) {
         self.delay = delay
         super.init()
     }
 
     func hover(_ cell: ProjectTabCellHostingView, at point: NSPoint) {
-        guard cell.canShowHoverPreview(at: point) else {
+        guard canPresent(cell, at: point) else {
             leave(cell)
             return
         }
@@ -46,7 +56,7 @@ final class ProjectTabHoverPreview: NSObject {
 
     func validate(_ cell: ProjectTabCellHostingView) {
         guard source === cell else { return }
-        if tabWindow !== cell.rootView.row.window || !cell.canShowHoverPreview {
+        if tabWindow !== cell.rootView.row.window || !canPresent(cell) {
             dismiss()
         }
     }
@@ -86,7 +96,7 @@ final class ProjectTabHoverPreview: NSObject {
             guard let self else { return event }
             if event.type == .mouseMoved, let source = self.source, event.window === source.window {
                 let point = source.convert(event.locationInWindow, from: nil)
-                if !source.canShowHoverPreview(at: point) { self.dismiss() }
+                if !self.canPresent(source, at: point) { self.dismiss() }
             } else {
                 self.dismiss()
             }
@@ -100,7 +110,7 @@ final class ProjectTabHoverPreview: NSObject {
         timer?.invalidate()
         timer = nil
         guard let source, let window = source.window,
-              tabWindow === source.rootView.row.window, source.canShowHoverPreview else {
+              tabWindow === source.rootView.row.window, canPresent(source) else {
             dismiss()
             return
         }

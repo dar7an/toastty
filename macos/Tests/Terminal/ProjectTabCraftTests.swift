@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Ghostty
 
@@ -8,8 +9,9 @@ struct ProjectTabCraftTests {
     @Test func nonfiniteRailWidthsFallBackToUsableCells() {
         for available: CGFloat in [.nan, .infinity, -.infinity] {
             let widths = ProjectTabStripView.cellWidths(available: available, count: 3, selectedIndex: 1)
+            let allFinite = widths.allSatisfy(\.isFinite)
             #expect(widths == [54, 120, 54])
-            #expect(widths.allSatisfy(\.isFinite))
+            #expect(allFinite)
         }
     }
 
@@ -42,7 +44,8 @@ struct ProjectTabCraftTests {
         #expect(!fixture.host.rootView.isPressed)
         fixture.host.mouseEntered(with: down)
         #expect(fixture.host.rootView.isPressed)
-        fixture.host.mouseUp(with: try fixture.event(.leftMouseUp, at: CGPoint(x: 80, y: 14)))
+        let up = try fixture.event(.leftMouseUp, at: CGPoint(x: 80, y: 14))
+        fixture.host.mouseUp(with: up)
         #expect(!fixture.host.rootView.isPressed)
         #expect(selections == 1)
     }
@@ -51,8 +54,10 @@ struct ProjectTabCraftTests {
         var selections = 0
         let fixture = Fixture { _ in selections += 1 }
         defer { fixture.close() }
-        fixture.host.mouseDown(with: try fixture.event(.leftMouseDown, at: CGPoint(x: 80, y: 14)))
-        fixture.host.mouseUp(with: try fixture.event(.leftMouseUp, at: CGPoint(x: 300, y: 14)))
+        let down = try fixture.event(.leftMouseDown, at: CGPoint(x: 80, y: 14))
+        fixture.host.mouseDown(with: down)
+        let up = try fixture.event(.leftMouseUp, at: CGPoint(x: 300, y: 14))
+        fixture.host.mouseUp(with: up)
         #expect(!fixture.host.rootView.isPressed)
         #expect(!fixture.host.rootView.isHovered)
         #expect(selections == 0)
@@ -62,10 +67,12 @@ struct ProjectTabCraftTests {
         var selections = 0
         let fixture = Fixture { _ in selections += 1 }
         defer { fixture.close() }
-        fixture.host.mouseDown(with: try fixture.event(.leftMouseDown, at: CGPoint(x: 10, y: 14)))
+        let down = try fixture.event(.leftMouseDown, at: CGPoint(x: 10, y: 14))
+        fixture.host.mouseDown(with: down)
         #expect(!fixture.host.rootView.isPressed)
         // Moving out of the close target cancels; it must not select instead.
-        fixture.host.mouseUp(with: try fixture.event(.leftMouseUp, at: CGPoint(x: 80, y: 14)))
+        let up = try fixture.event(.leftMouseUp, at: CGPoint(x: 80, y: 14))
+        fixture.host.mouseUp(with: up)
         #expect(selections == 0)
     }
 
@@ -76,12 +83,27 @@ struct ProjectTabCraftTests {
         fixture.host.layoutSubtreeIfNeeded()
         #expect(fixture.window.isVisible)
         #expect(!fixture.window.isKeyWindow)
-        #expect(!fixture.host.canShowHoverPreview)
+        #expect(fixture.host.canShowHoverPreview)
         let preview = ProjectTabHoverPreview()
         defer { preview.dismiss() }
         preview.hover(fixture.host, at: CGPoint(x: 80, y: 14))
         #expect(!preview.isPending)
         #expect(!preview.isVisible)
+    }
+
+    @Test func anActiveInteractionWindowSchedulesHoverPreviews() {
+        let fixture = Fixture { _ in }
+        defer { fixture.close() }
+        fixture.window.orderFront(nil)
+        fixture.host.layoutSubtreeIfNeeded()
+        let preview = ProjectTabHoverPreview()
+        defer { preview.dismiss() }
+        preview.isInteractionWindowActive = { $0 === fixture.window }
+        preview.hover(fixture.host, at: CGPoint(x: 80, y: 14))
+        #expect(preview.isPending)
+        preview.isInteractionWindowActive = { _ in false }
+        preview.validate(fixture.host)
+        #expect(!preview.isPending)
     }
 
     @Test func auxiliaryToolbarResolvesTheSelectedTerminalAsInteractionWindow() throws {

@@ -645,7 +645,7 @@ final class ProjectTabCellHostingView: NonDraggableHostingView<ProjectTabCell> {
 
     var canShowHoverPreview: Bool {
         !rootView.isSelected && mouseDownPoint == nil && reorderGesture == nil &&
-            window?.isVisible == true && previewInteractionWindow?.isKeyWindow == true &&
+            window?.isVisible == true &&
             previewInteractionWindow?.attachedSheet == nil &&
             !isHiddenOrHasHiddenAncestor && !hoverPreviewRect.isEmpty &&
             rootView.row.window.projectSidebarModel.liftedTabID == nil

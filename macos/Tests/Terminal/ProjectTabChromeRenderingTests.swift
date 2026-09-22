@@ -3,54 +3,44 @@ import SwiftUI
 import XCTest
 @testable import Ghostty
 
-/// Render the production SwiftUI components, not a separate HTML mock-up.
-/// Synthetic titles and an empty thumbnail keep terminal content out of CI.
+/// Light/dark review fixtures of the production SwiftUI components, not a
+/// separate HTML mock-up. Contrast, reduce-transparency, and inactive states
+/// can't be injected into an off-screen NSHostingView, so they aren't claimed
+/// here. Synthetic titles and an empty thumbnail keep terminal content out of
+/// CI.
 final class ProjectTabChromeRenderingTests: XCTestCase {
     @MainActor
-    func testChromeAppearanceMatrix() throws {
+    func testChromeLightAndDarkFixtures() throws {
         for dark in [false, true] {
-            for mode in ["standard", "contrast", "opaque", "inactive"] {
-                let name = "tabs-\(dark ? "dark" : "light")-\(mode)"
-                let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 360),
-                                      styleMask: .borderless, backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
-                // Contrast is read-only in SwiftUI's environment. Let the
-                // native appearance supply both color scheme and contrast.
-                let appearanceName: NSAppearance.Name
-                if mode == "contrast" {
-                    appearanceName = dark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua
-                } else {
-                    appearanceName = dark ? .darkAqua : .aqua
-                }
-                window.appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
-                defer {
-                    window.contentView = nil
-                    window.close()
-                }
-                let row = TabSidebarModel.Row(
-                    window: window, project: TerminalProject(),
-                    title: "Build · उत्पादन", pwd: "~/Projects/Toastty/Long Directory/Sources")
-                let fixture = ChromeFixture(row: row)
-                    .environment(\.accessibilityReduceTransparency, mode == "opaque")
-                    .environment(\.accessibilityReduceMotion, true)
-                    .environment(\.controlActiveState, mode == "inactive" ? .inactive : .key)
-                let host = NSHostingView(rootView: fixture)
-                host.appearance = window.appearance
-                window.contentView = host
-                host.frame = CGRect(x: 0, y: 0, width: 620, height: 360)
-                host.layoutSubtreeIfNeeded()
-                host.displayIfNeeded()
-                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                host.cacheDisplay(in: host.bounds, to: bitmap)
-                XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, 620)
-                XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, 360)
-                let image = NSImage(size: host.bounds.size)
-                image.addRepresentation(bitmap)
-                let attachment = XCTAttachment(image: image)
-                attachment.name = name
-                attachment.lifetime = .keepAlways
-                add(attachment)
+            let name = dark ? "tabs-dark" : "tabs-light"
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 620, height: 360),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = try XCTUnwrap(NSAppearance(named: dark ? .darkAqua : .aqua))
+            defer {
+                window.contentView = nil
+                window.close()
             }
+            let row = TabSidebarModel.Row(
+                window: window, project: TerminalProject(),
+                title: "Build · उत्पादन", pwd: "~/Projects/Toastty/Long Directory/Sources")
+            let fixture = ChromeFixture(row: row)
+            let host = NSHostingView(rootView: fixture)
+            host.appearance = window.appearance
+            window.contentView = host
+            host.frame = CGRect(x: 0, y: 0, width: 620, height: 360)
+            host.layoutSubtreeIfNeeded()
+            host.displayIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, 620)
+            XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, 360)
+            let image = NSImage(size: host.bounds.size)
+            image.addRepresentation(bitmap)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
         }
     }
 }
