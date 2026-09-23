@@ -28,6 +28,7 @@ extension TabSidebarModel {
               let source = projects.firstIndex(where: { $0.id == payload.projectID }),
               (0...projects.count).contains(destination) else { return false }
         moveProjects(fromOffsets: IndexSet(integer: source), toOffset: destination)
+        if draggingProjectID == payload.projectID { draggingProjectID = nil }
         return true
     }
 }

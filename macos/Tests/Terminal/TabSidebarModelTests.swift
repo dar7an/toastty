@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Testing
 @testable import Ghostty
 
@@ -34,6 +35,11 @@ struct TabSidebarModelTests {
         let model = group.tabSidebarModel
         await drainMainQueue()
         model.select(ObjectIdentifier(windows[2]), stealFocus: false)
+        var redundantUpdates = 0
+        let selectionObservation = model.objectWillChange.sink { redundantUpdates += 1 }
+        model.selectProject(alpha.id, stealFocus: false)
+        #expect(redundantUpdates == 0)
+        withExtendedLifetime(selectionObservation) {}
         let nativeOrder = group.windows
         let original = model.projects.map(\.id)
         let selected = model.selection

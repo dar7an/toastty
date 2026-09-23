@@ -794,9 +794,10 @@ final class TabSidebarModel: ObservableObject {
     }
 
     private func syncSelection() {
-        selection = selectedWindow.map { ObjectIdentifier($0) }
+        let currentSelection = selectedWindow.map { ObjectIdentifier($0) }
+        if selection != currentSelection { selection = currentSelection }
         if let row = rows.first(where: { $0.id == selection }) {
-            selectedProjectID = row.project.id
+            if selectedProjectID != row.project.id { selectedProjectID = row.project.id }
             selectedTabs[row.project.id] = row.id
             if let selected = row.window.windowController as? TerminalController {
                 for tab in rows where tab.project.id == row.project.id {
@@ -848,7 +849,7 @@ struct ProjectSidebarListView: View {
     var body: some View {
         VStack(spacing: 0) {
             List(selection: Binding(get: { model.highlightedProjectID }, set: {
-                guard model.draggingProjectID == nil else { return }
+                guard model.draggingProjectID == nil, $0 != model.selectedProjectID else { return }
                 model.selectProject($0)
             })) {
                 ForEach(model.projects) { project in
