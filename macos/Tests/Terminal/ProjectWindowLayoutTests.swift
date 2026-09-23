@@ -42,6 +42,7 @@ struct ProjectWindowLayoutTests {
             if commit {
                 #expect(model.acceptProjectDrop(.init(groupID: model.dragID, projectID: first.controller.project.id),
                                                at: model.projects.count))
+                #expect(model.draggingProjectID == nil)
             }
             source.onDragEnded()
             await drainMainQueue()
