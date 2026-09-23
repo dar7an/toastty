@@ -35,8 +35,14 @@ struct ProjectSidebarEmptyClickGuard: NSViewRepresentable {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                self?.filteredEvent(event) ?? event
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: .leftMouseDown, handler: makeEventMonitorHandler())
+        }
+
+        func makeEventMonitorHandler() -> (NSEvent) -> NSEvent? {
+            { [weak self] event in
+                guard let self else { return event }
+                return self.filteredEvent(event)
             }
         }
 

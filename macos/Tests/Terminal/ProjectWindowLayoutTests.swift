@@ -523,6 +523,7 @@ struct ProjectWindowLayoutTests {
             .first { $0.numberOfRows > 0 })
         let clickGuard = try #require(descendants(of: sidebarView)
             .compactMap { $0 as? ProjectSidebarEmptyClickGuard.GuardView }.first)
+        let monitorHandler = clickGuard.makeEventMonitorHandler()
 
         // Find a point on the table's surface with no row under it.
         var emptyPoint: NSPoint?
@@ -539,19 +540,19 @@ struct ProjectWindowLayoutTests {
         let down = try #require(NSEvent.mouseEvent(
             with: .leftMouseDown, location: pointInWindow, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-        #expect(clickGuard.filteredEvent(down) == nil)
+        #expect(monitorHandler(down) == nil)
 
         let controlDown = try #require(NSEvent.mouseEvent(
             with: .leftMouseDown, location: pointInWindow, modifierFlags: .control, timestamp: 0,
             windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 1))
-        #expect(clickGuard.filteredEvent(controlDown) === controlDown)
+        #expect(monitorHandler(controlDown) === controlDown)
 
         let firstRow = table.rect(ofRow: 0)
         let rowPoint = table.convert(NSPoint(x: firstRow.midX, y: firstRow.midY), to: nil)
         let rowDown = try #require(NSEvent.mouseEvent(
             with: .leftMouseDown, location: rowPoint, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
-        #expect(clickGuard.filteredEvent(rowDown) === rowDown)
+        #expect(monitorHandler(rowDown) === rowDown)
     }
 
     @Test func renderedTabCellIncludesItsPadding() {
