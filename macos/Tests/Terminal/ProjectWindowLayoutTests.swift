@@ -502,6 +502,59 @@ struct ProjectWindowLayoutTests {
         }
     }
 
+    /// The local monitor consumes only bare list clicks. A synthetic
+    /// `NSApp.sendEvent` call bypasses local monitors, so test the event filter
+    /// against the rendered table's actual geometry.
+    @Test func sidebarEmptyAreaClickFilterPreservesRowsAndContextMenu() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let controller = fixture.controller
+        let window = fixture.window
+        let split = fixture.split
+        defer { controller.window = nil; window.close() }
+        window.makeKeyAndOrderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await drainMainQueue()
+
+        let sidebarView = split.sidebarSplitItem.viewController.view
+        let table = try #require(descendants(of: sidebarView)
+            .compactMap { $0 as? NSTableView }
+            .first { $0.numberOfRows > 0 })
+        let clickGuard = try #require(descendants(of: sidebarView)
+            .compactMap { $0 as? ProjectSidebarEmptyClickGuard.GuardView }.first)
+        let monitorHandler = clickGuard.makeEventMonitorHandler()
+
+        // Find a point on the table's surface with no row under it.
+        var emptyPoint: NSPoint?
+        var y = table.bounds.maxY - 2
+        while y > 0 {
+            let candidate = NSPoint(x: table.bounds.midX, y: y)
+            if table.row(at: candidate) == -1 {
+                emptyPoint = candidate
+                break
+            }
+            y -= 4
+        }
+        let pointInWindow = table.convert(try #require(emptyPoint), to: nil)
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: pointInWindow, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        #expect(monitorHandler(down) == nil)
+
+        let controlDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: pointInWindow, modifierFlags: .control, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 1))
+        #expect(monitorHandler(controlDown) === controlDown)
+
+        let firstRow = table.rect(ofRow: 0)
+        let rowPoint = table.convert(NSPoint(x: firstRow.midX, y: firstRow.midY), to: nil)
+        let rowDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: rowPoint, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
+        #expect(monitorHandler(rowDown) === rowDown)
+    }
+
     @Test func renderedTabCellIncludesItsPadding() {
         let window = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
