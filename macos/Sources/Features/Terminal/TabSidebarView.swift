@@ -922,18 +922,22 @@ struct ProjectSidebarListView: View {
         private func projectRow(_ project: TerminalProject) -> some View {
             HStack(spacing: 8) {
                 ProjectSidebarIconView(project: project)
-                    .background(ProjectEmojiPicker(
-                        isPresented: model.editingProjectEmojiID == project.id &&
-                            controller.window.map(ObjectIdentifier.init) == model.selection,
-                        onSelect: { emoji in
+                    .popover(
+                        isPresented: Binding(
+                            get: {
+                                model.editingProjectEmojiID == project.id &&
+                                    controller.window.map(ObjectIdentifier.init) == model.selection
+                            },
+                            set: { if !$0 { model.cancelProjectEmojiEdit() } }
+                        ),
+                        arrowEdge: .leading
+                    ) {
+                        ProjectEmojiPicker { emoji in
                             guard model.editingProjectEmojiID == project.id else { return }
                             model.editingProjectEmojiDraft = emoji
                             model.commitProjectEmojiEdit()
-                        },
-                        onCancel: {
-                            guard model.editingProjectEmojiID == project.id else { return }
-                            model.cancelProjectEmojiEdit()
-                        }))
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 4) {
                     // Reserve the editor's height even when showing the label.
                     // Keep the directory visible throughout rename.

@@ -1307,6 +1307,30 @@ extension Ghostty {
             // to receive any other event type here.
             guard event.type == .keyDown else { return false }
 
+            // If a text field (or its field editor) holds first responder,
+            // send the standard editing actions straight to the responder
+            // chain. Returning false leaves the event to the text system's
+            // key traversal which consumes it without performing anything —
+            // the menu can't help either since performable keybinds (like
+            // paste_from_clipboard) don't put a key equivalent on the item.
+            if let firstResponder = window?.firstResponder,
+               firstResponder !== self,
+               firstResponder is NSTextView || firstResponder is NSTextField {
+                let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+                let selector: Selector? = switch (mods, event.charactersIgnoringModifiers?.lowercased()) {
+                case ([.command], "v"): #selector(NSText.paste(_:))
+                case ([.command], "x"): #selector(NSText.cut(_:))
+                case ([.command], "c"): #selector(NSText.copy(_:))
+                case ([.command], "a"): #selector(NSText.selectAll(_:))
+                case ([.command], "z"): Selector("undo:")
+                case ([.command, .shift], "z"): Selector("redo:")
+                default: nil
+                }
+                if let selector {
+                    return NSApp.sendAction(selector, to: nil, from: nil)
+                }
+            }
+
             // Only process events if we're focused. Some key events like C-/ macOS
             // appears to send to the first view in the hierarchy rather than the
             // the first responder (I don't know why). This prevents us from handling it.
