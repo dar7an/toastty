@@ -53,8 +53,12 @@ pub fn detect(b: *std.Build) !Version {
         break :short_hash std.mem.trimEnd(u8, output, "\r\n ");
     };
 
+    // Only release-shaped tags may be treated as the version tag. Toastty
+    // creates other tags such as `nightly-*` on built commits, and without
+    // these matches a nightly tag would be misread as a release tag and
+    // crash Config.init's vX.Y.Z assertion.
     const tag = b.runAllowFail(
-        &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "describe", "--exact-match", "--tags" },
+        &[_][]const u8{ "git", "-C", b.build_root.path orelse ".", "describe", "--exact-match", "--tags", "--match", "v*", "--match", "tip" },
         &code,
         .ignore,
     ) catch |err| switch (err) {
