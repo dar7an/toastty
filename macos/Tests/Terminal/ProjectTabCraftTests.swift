@@ -19,40 +19,13 @@ struct ProjectTabCraftTests {
         #expect(!model.recordTabClick(id, timestamp: 10))
     }
 
-    @Test func emojiInputCommitsAfterInsertionReturnsAndIgnoresCancelledInsertion() async {
-        let input = ProjectEmojiInputField(frame: .zero)
-        var selected: [String] = []
-        var cancellations = 0
-        input.onSelect = { selected.append($0) }
-        input.onCancel = { cancellations += 1 }
-        input.setPresented(true)
-        input.stringValue = "ordinary text"
-        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
-        #expect(selected.isEmpty)
-        input.stringValue = "👩🏽‍💻"
-        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
-        // Mutating the sidebar or its first responder inside this callback can
-        // reenter the system input method while Character Viewer is inserting.
-        #expect(selected.isEmpty)
-        #expect(input.isEditable)
-        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
-        input.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: input))
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
+    @Test func emojiPickerGridEntriesAllNormalize() {
+        // Every grid entry must survive normalizedEmoji or its pick is a
+        // silent no-op in commitProjectEmojiEdit.
+        for emoji in ProjectEmojiPicker.emojis {
+            #expect(TerminalProject.normalizedEmoji(emoji) != nil)
         }
-        #expect(selected == ["👩🏽‍💻"])
-        #expect(!input.isPresented)
-        #expect(!input.isEditable)
-        #expect(cancellations == 0)
-        input.setPresented(true)
-        input.cancelOperation(nil)
-        input.stringValue = "😀"
-        input.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: input))
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-        #expect(selected == ["👩🏽‍💻"])
-        #expect(cancellations == 1)
+        #expect(!ProjectEmojiPicker.emojis.isEmpty)
     }
 
     @Test func nonfiniteRailWidthsFallBackToUsableCells() {

@@ -75,7 +75,7 @@ struct ProjectWindowLayoutTests {
         #expect(content.hitTest(point) === interaction)
     }
 
-    @Test func emojiPickerReceivesFocusInRenderedSidebarAndCommitsImmediately() async throws {
+    @Test func projectEmojiCommitAndCancelRoundTrip() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         Self.emojiFixtureApp = app
@@ -89,36 +89,19 @@ struct ProjectWindowLayoutTests {
         defer { fixture.controller.window = nil; window.close() }
         await drainMainQueue()
         let model = window.projectSidebarModel
-        var presentations = 0
-        let choices = ["🧪", "👩🏽‍💻", "😆", "🏳️‍🌈"]
-        for (index, emoji) in choices.enumerated() {
-            // SwiftUI may replace the row's input anchor after metadata changes.
-            window.contentView?.layoutSubtreeIfNeeded()
-            let input = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
-                .compactMap { $0 as? ProjectEmojiInputField }.first)
-            input.showPicker = { presentations += 1 }
+        // The popover grid hands each pick straight to the draft + commit
+        // path; exercise the same composed emoji the old palette flow allowed.
+        for emoji in ["🧪", "👩🏽‍💻", "😆", "🏳️‍🌈"] {
             model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-            let editor = try await waitForEmojiEditor(input)
             #expect(model.editingProjectEmojiID == fixture.controller.project.id)
-            #expect(input.isPresented)
-            #expect(window.firstResponder === input.currentEditor())
-            #expect(presentations == index + 1)
-            editor.insertText(emoji, replacementRange: NSRange(location: NSNotFound, length: 0))
-            // Selection is committed on the next main-queue turn, after the
-            // input system has finished delivering the composed character.
-            #expect(model.editingProjectEmojiID != nil)
-            await drainMainQueue()
-            #expect(fixture.controller.project.emoji == emoji)
+            model.editingProjectEmojiDraft = emoji
+            model.commitProjectEmojiEdit()
+            #expect(fixture.controller.project.emoji == TerminalProject.normalizedEmoji(emoji))
             #expect(model.editingProjectEmojiID == nil)
             #expect(window.firstResponder === terminal)
         }
-        let input = try #require(descendants(of: fixture.split.sidebarSplitItem.viewController.view)
-            .compactMap { $0 as? ProjectEmojiInputField }.first)
-        input.showPicker = {}
         model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-        _ = try await waitForEmojiEditor(input)
-        input.cancelOperation(nil)
-        await drainMainQueue()
+        model.cancelProjectEmojiEdit()
         #expect(model.editingProjectEmojiID == nil)
         #expect(window.firstResponder === terminal)
     }
@@ -854,17 +837,6 @@ struct ProjectWindowLayoutTests {
         window.contentView = container
         window.configureProjectChrome(splitController: split)
         return WindowFixture(controller: controller, window: window, container: container, split: split)
-    }
-
-    private func waitForEmojiEditor(_ input: ProjectEmojiInputField) async throws -> NSTextView {
-        // SwiftUI layout and AppKit's field editor can finish in a later
-        // run-loop phase than a fixed number of main-queue callbacks.
-        for _ in 0..<100 {
-            if let editor = input.currentEditor() as? NSTextView,
-               input.window?.firstResponder === editor { return editor }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        return try #require(input.currentEditor() as? NSTextView)
     }
 
     private func drainMainQueue() async {
