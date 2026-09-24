@@ -46,6 +46,30 @@ protocol FullscreenDelegate: AnyObject {
     func fullscreenDidChange()
 }
 
+/// Tracks whether a fullscreen transition is in flight. Each transition gets
+/// an id so a watchdog scheduled for an earlier transition cannot clear a
+/// later one.
+struct FullscreenTransitionGuard {
+    private(set) var isInFlight = false
+    private var currentID: UInt64 = 0
+
+    mutating func begin() -> UInt64 {
+        currentID &+= 1
+        isInFlight = true
+        return currentID
+    }
+
+    mutating func end() {
+        currentID &+= 1
+        isInFlight = false
+    }
+
+    mutating func expire(_ id: UInt64) {
+        guard id == currentID else { return }
+        isInFlight = false
+    }
+}
+
 /// The base class for fullscreen implementations, cannot be used as a FullscreenStyle on its own.
 class FullscreenBase {
     let window: NSWindow

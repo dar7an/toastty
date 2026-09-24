@@ -1122,6 +1122,13 @@ class BaseTerminalController: NSWindowController,
         // We need a window to fullscreen
         guard let window = self.window else { return }
 
+        // toggleFullScreen invoked while a transition is in flight has
+        // undefined behavior: raced toggles can leave orphan NSWindows that
+        // keep rendering surface content. Replacing the style mid-transition
+        // would also drop the saved state non-native styles need to restore
+        // the window, so refuse before building or storing a new style.
+        guard !fullscreenTransition.isInFlight else { return }
+
         // If we have a previous fullscreen style initialized, we want to check if
         // our mode changed. If it changed and we're in fullscreen, we exit so we can
         // toggle it next time. If it changed and we're not in fullscreen we can just
@@ -1143,10 +1150,8 @@ class BaseTerminalController: NSWindowController,
             if newStyle == nil || type(of: newStyle!) != type(of: oldStyle) {
                 // Our mode changed. Exit fullscreen (since we're toggling anyways)
                 // and then set the new style for future use
-                if !fullscreenTransitionInFlight {
-                    fullscreenTransitionInFlight = true
-                    oldStyle.exit()
-                }
+                beginFullscreenTransition()
+                oldStyle.exit()
                 self.fullscreenStyle = newStyle
 
                 // We're done
@@ -1160,12 +1165,7 @@ class BaseTerminalController: NSWindowController,
         }
         guard let fullscreenStyle else { return }
 
-        // toggleFullScreen invoked while a transition is in flight has
-        // undefined behavior: raced toggles can leave orphan NSWindows that
-        // keep rendering surface content. Only one transition at a time.
-        guard !fullscreenTransitionInFlight else { return }
-        fullscreenTransitionInFlight = true
-
+        beginFullscreenTransition()
         if fullscreenStyle.isFullscreen {
             fullscreenStyle.exit()
         } else {
@@ -1173,20 +1173,22 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    /// Whether a native fullscreen transition is currently in flight. Set on
-    /// toggle and cleared by the didEnter/didExit notifications (which funnel
-    /// through fullscreenDidChange) or the watchdog in case they never arrive.
-    private var fullscreenTransitionInFlight = false {
-        didSet {
-            guard fullscreenTransitionInFlight else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
-                self?.fullscreenTransitionInFlight = false
-            }
+    /// Set on toggle and ended by the didEnter/didExit notifications (which
+    /// funnel through fullscreenDidChange) or a watchdog in case they never
+    /// arrive.
+    private var fullscreenTransition = FullscreenTransitionGuard()
+
+    /// Must be called before enter()/exit(): non-native styles notify the
+    /// delegate synchronously on exit, which ends the transition.
+    private func beginFullscreenTransition() {
+        let id = fullscreenTransition.begin()
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+            self?.fullscreenTransition.expire(id)
         }
     }
 
     func fullscreenDidChange() {
-        fullscreenTransitionInFlight = false
+        fullscreenTransition.end()
         guard let fullscreenStyle else { return }
 
         // When we enter fullscreen, we want to show the update overlay so that it
