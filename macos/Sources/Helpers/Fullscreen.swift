@@ -44,29 +44,133 @@ protocol FullscreenDelegate: AnyObject {
     /// Called whenever the fullscreen state changed. You can call isFullscreen to see
     /// the current state.
     func fullscreenDidChange()
+
+    /// Native fullscreen is about to animate. Posted for will-enter and will-exit.
+    func fullscreenNativeTransitionWillBegin()
+
+    /// Native fullscreen finished animating. Posted for did-enter and did-exit.
+    func fullscreenNativeTransitionDidEnd()
 }
 
 /// Tracks whether a fullscreen transition is in flight. Each transition gets
 /// an id so a watchdog scheduled for an earlier transition cannot clear a
 /// later one.
+///
+/// Elapsed time is not completion. AppKit flips the fullscreen style bit and
+/// frame before the Space animation finishes, and the window leaves the active
+/// Space until did-enter or did-exit. The watchdog may release the guard only
+/// when that round trip was observed, when the transition never started, or
+/// when AppKit reports failure.
 struct FullscreenTransitionGuard {
+    enum WatchOutcome: Equatable {
+        /// This id is no longer the in-flight transition.
+        case ignore
+        /// The transition has not finished. Check again.
+        case keep
+        /// The window returned to the active Space and the completion
+        /// notification never arrived.
+        case reconcile
+        /// Nothing is animating, or the window is gone.
+        case failed
+    }
+
     private(set) var isInFlight = false
     private var currentID: UInt64 = 0
+    /// The in-flight id that received will-enter or will-exit. Zero when this
+    /// transition is not a native Space animation.
+    private var nativeID: UInt64 = 0
+    private var leftActiveSpace = false
+    private var sawReturnToActiveSpace = false
 
     mutating func begin() -> UInt64 {
         currentID &+= 1
         isInFlight = true
+        nativeID = 0
+        leftActiveSpace = false
+        sawReturnToActiveSpace = false
         return currentID
     }
 
-    mutating func end() {
-        currentID &+= 1
-        isInFlight = false
+    /// Ignored when no transition is in flight, such as the green window button.
+    mutating func noteNativeBegan() {
+        guard isInFlight else { return }
+        nativeID = currentID
     }
 
-    mutating func expire(_ id: UInt64) {
-        guard id == currentID else { return }
+    /// Synchronous non-native completion, or any completion of the current transition.
+    mutating func end() {
+        guard isInFlight else { return }
+        finish()
+    }
+
+    /// did-enter or did-exit. A notification for a transition that is no longer
+    /// current must not clear a newer one.
+    mutating func endNativeCompletion() {
+        guard isInFlight, nativeID != 0, nativeID == currentID else { return }
+        finish()
+    }
+
+    mutating func fail() {
+        guard isInFlight else { return }
+        finish()
+    }
+
+    mutating func evaluateWatchdog(
+        _ id: UInt64,
+        isOnActiveSpace: Bool,
+        windowIsGone: Bool,
+        unstartedGraceElapsed: Bool,
+        giveUpElapsed: Bool
+    ) -> WatchOutcome {
+        guard id == currentID, isInFlight else { return .ignore }
+        if windowIsGone {
+            finish()
+            return .failed
+        }
+
+        let nativeBegan = nativeID == currentID
+        if !nativeBegan {
+            if unstartedGraceElapsed {
+                finish()
+                return .failed
+            }
+            return .keep
+        }
+
+        if !isOnActiveSpace {
+            leftActiveSpace = true
+            sawReturnToActiveSpace = false
+            if giveUpElapsed {
+                finish()
+                return .failed
+            }
+            return .keep
+        }
+
+        if leftActiveSpace {
+            // did-enter and did-exit are delivered on the turn the window
+            // returns. Wait one check so that notification wins.
+            if sawReturnToActiveSpace {
+                finish()
+                return .reconcile
+            }
+            sawReturnToActiveSpace = true
+            return .keep
+        }
+
+        if giveUpElapsed {
+            finish()
+            return .failed
+        }
+        return .keep
+    }
+
+    private mutating func finish() {
+        currentID &+= 1
         isInFlight = false
+        nativeID = 0
+        leftActiveSpace = false
+        sawReturnToActiveSpace = false
     }
 }
 
@@ -84,6 +188,16 @@ class FullscreenBase {
         let center = NotificationCenter.default
         center.addObserver(
             self,
+            selector: #selector(willChangeFullScreenNotification),
+            name: NSWindow.willEnterFullScreenNotification,
+            object: window)
+        center.addObserver(
+            self,
+            selector: #selector(willChangeFullScreenNotification),
+            name: NSWindow.willExitFullScreenNotification,
+            object: window)
+        center.addObserver(
+            self,
             selector: #selector(didEnterFullScreenNotification),
             name: NSWindow.didEnterFullScreenNotification,
             object: window)
@@ -98,14 +212,18 @@ class FullscreenBase {
         NotificationCenter.default.removeObserver(self)
     }
 
+    @objc private func willChangeFullScreenNotification(_ notification: Notification) {
+        delegate?.fullscreenNativeTransitionWillBegin()
+    }
+
     @objc private func didEnterFullScreenNotification(_ notification: Notification) {
         NotificationCenter.default.post(name: .fullscreenDidEnter, object: self)
-        delegate?.fullscreenDidChange()
+        delegate?.fullscreenNativeTransitionDidEnd()
     }
 
     @objc private func didExitFullScreenNotification(_ notification: Notification) {
         NotificationCenter.default.post(name: .fullscreenDidExit, object: self)
-        delegate?.fullscreenDidChange()
+        delegate?.fullscreenNativeTransitionDidEnd()
     }
 }
 
