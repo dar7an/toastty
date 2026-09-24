@@ -6,19 +6,25 @@ import SwiftUI
 struct ProjectEmojiPicker: View {
     let onSelect: (String) -> Void
 
-    private let columns = Array(repeating: GridItem(.fixed(30), spacing: 4), count: 8)
+    private static let columnCount = 8
 
+    // The popover never scrolls, so a static grid builds every button (and
+    // its accessibility element) up front; a lazy grid would defer both.
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 4) {
-            ForEach(Self.emojis, id: \.self) { emoji in
-                Button { onSelect(emoji) } label: {
-                    Text(emoji)
-                        .font(.system(size: 19))
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
+        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(Array(stride(from: 0, to: Self.emojis.count, by: Self.columnCount)), id: \.self) { start in
+                GridRow {
+                    ForEach(Self.emojis[start..<min(start + Self.columnCount, Self.emojis.count)], id: \.self) { emoji in
+                        Button { onSelect(emoji) } label: {
+                            Text(emoji)
+                                .font(.system(size: 19))
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Choose \(emoji)")
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Choose \(emoji)")
             }
         }
         .padding(10)

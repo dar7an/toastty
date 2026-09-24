@@ -75,7 +75,7 @@ struct ProjectWindowLayoutTests {
         #expect(content.hitTest(point) === interaction)
     }
 
-    @Test func projectEmojiCommitAndCancelRoundTrip() async throws {
+    @Test func projectEmojiPopoverCommitsClickAndCancelsOnDismiss() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         Self.emojiFixtureApp = app
@@ -89,20 +89,31 @@ struct ProjectWindowLayoutTests {
         defer { fixture.controller.window = nil; window.close() }
         await drainMainQueue()
         let model = window.projectSidebarModel
-        // The popover grid hands each pick straight to the draft + commit
-        // path; exercise the same composed emoji the old palette flow allowed.
-        for emoji in ["🧪", "👩🏽‍💻", "😆", "🏳️‍🌈"] {
-            model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-            #expect(model.editingProjectEmojiID == fixture.controller.project.id)
-            model.editingProjectEmojiDraft = emoji
-            model.commitProjectEmojiEdit()
-            #expect(fixture.controller.project.emoji == TerminalProject.normalizedEmoji(emoji))
-            #expect(model.editingProjectEmojiID == nil)
-            #expect(window.firstResponder === terminal)
-        }
-        model.beginProjectEmojiEdit(projectID: fixture.controller.project.id)
-        model.cancelProjectEmojiEdit()
+        let emoji = "🧪"
+        let projectID = fixture.controller.project.id
+        // SwiftUI builds its accessibility tree only once an assistive client
+        // asks for it; this is the attribute such clients set on the app.
+        let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApp.accessibilitySetValue(true, forAttribute: enhancedUI)
+        defer { NSApp.accessibilitySetValue(false, forAttribute: enhancedUI) }
+        model.beginProjectEmojiEdit(projectID: projectID)
+        let (popover, buttonFrame) = try await waitForPopoverButton(labeled: "Choose \(emoji)")
+        #expect(popover !== window)
+        click(buttonFrame, in: popover)
+        await drainMainQueue()
+        #expect(fixture.controller.project.emoji == emoji)
         #expect(model.editingProjectEmojiID == nil)
+        #expect(window.firstResponder === terminal)
+        try await waitUntil { !popover.isVisible }
+
+        model.beginProjectEmojiEdit(projectID: projectID)
+        let (reopened, _) = try await waitForPopoverButton(labeled: "Choose \(emoji)")
+        // The unattended test host cannot activate, so the popover never
+        // becomes key to receive the Escape keyDown; send the action Escape
+        // is bound to from the popover's own responder chain instead.
+        #expect(reopened.contentView?.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: nil) == true)
+        try await waitUntil { model.editingProjectEmojiID == nil }
+        #expect(fixture.controller.project.emoji == emoji)
         #expect(window.firstResponder === terminal)
     }
 
@@ -849,6 +860,53 @@ struct ProjectWindowLayoutTests {
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// The popover is hosted in its own window, so search every window's
+    /// accessibility tree rather than the sidebar's view hierarchy.
+    private func waitForPopoverButton(labeled label: String) async throws -> (NSWindow, NSRect) {
+        for _ in 0..<100 {
+            // Start from content views: a popover is also an accessibility
+            // child of its parent window, which must not receive the events.
+            for window in NSApp.windows where window.isVisible {
+                guard let content = window.contentView,
+                      let frame = accessibilityButtonFrame(in: content, labeled: label) else { continue }
+                return (window, frame)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("No visible window contains a button labeled \(label)")
+        throw CancellationError()
+    }
+
+    // SwiftUI's accessibility nodes answer the NSAccessibility selectors
+    // without declaring protocol conformance, so dispatch dynamically.
+    private func accessibilityButtonFrame(in element: AnyObject, labeled label: String) -> NSRect? {
+        if let role = element.accessibilityRole?(), role == .button,
+           let elementLabel = element.accessibilityLabel?(), elementLabel == label {
+            return element.accessibilityFrame?()
+        }
+        for child in element.accessibilityChildren?() ?? [] {
+            if let frame = accessibilityButtonFrame(in: child as AnyObject, labeled: label) { return frame }
+        }
+        return nil
+    }
+
+    private func click(_ screenFrame: NSRect, in window: NSWindow) {
+        let location = window.convertPoint(fromScreen: NSPoint(x: screenFrame.midX, y: screenFrame.midY))
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            if let event { window.sendEvent(event) }
+        }
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<100 where !condition() {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(condition())
     }
 }
 
