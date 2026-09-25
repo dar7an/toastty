@@ -15,7 +15,10 @@ env:
   NIGHTLY_BUILD: ${{ github.run_number }}.${{ github.run_attempt }}
   NIGHTLY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 jobs:
-  nightly:
+  # setup-zig keys its cache by job id. Keep this id aligned with macOS CI
+  # so a green main build is reused instead of fetching FreeType again.
+  build-and-test:
+    name: nightly
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -45,6 +48,7 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ steps.upstream.outputs.zig-version }}
+          cache-size-limit: 8192
       - name: Install macOS development tools
         run: brew install nushell swiftlint
       - name: Require Toastty update signing key
@@ -54,7 +58,7 @@ jobs:
       - name: Build isolated ad-hoc nightly
         run: |
           set -euo pipefail
-          zig build -Demit-macos-app=false -Doptimize=ReleaseFast
+          scripts/zig-build.sh -Demit-macos-app=false -Doptimize=ReleaseFast
           macos/build.nu --configuration ReleaseLocal
           python3 scripts/package-nightly.py --build "$NIGHTLY_BUILD" --commit "$NIGHTLY_SHA"
           "macos/build/Nightly/Toastty Nightly.app/Contents/MacOS/toastty" --version

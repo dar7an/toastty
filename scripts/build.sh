@@ -8,6 +8,6 @@ for tool in zig nu swiftlint xcodebuild python3; do
 done
 required_zig="$(python3 scripts/upstream.py zig-version)"
 [[ "$(zig version)" == "$required_zig" ]] || { echo "Toastty requires Zig $required_zig." >&2; exit 1; }
-zig build -Demit-macos-app=false -Doptimize=ReleaseFast
+scripts/zig-build.sh -Demit-macos-app=false -Doptimize=ReleaseFast
 macos/build.nu --configuration "$configuration"
 echo "Built macos/build/$configuration/Toastty.app"

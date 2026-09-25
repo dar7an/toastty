@@ -24,6 +24,10 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ steps.upstream.outputs.zig-version }}
+          # ReleaseFast exceeds the 2048 MiB default (measured 2143 MiB).
+          # Over the cap, setup-zig saves an empty cache and the next build
+          # downloads FreeType from Savannah again.
+          cache-size-limit: 8192
       - name: Install macOS development tools
         run: brew install nushell swiftlint
       - name: Lint changed Swift files
@@ -85,6 +89,7 @@ jobs:
         if: steps.scope.outputs.engine-tests == 'true'
         with:
           version: ${{ steps.upstream.outputs.zig-version }}
+          cache-size-limit: 8192
       - name: Run core and libghostty-vt tests
         if: steps.scope.outputs.engine-tests == 'true'
         run: scripts/test-engine.sh
