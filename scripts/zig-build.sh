@@ -15,7 +15,9 @@ log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
 fetch_failed() {
-  grep -Eq 'unable to connect to server|Could not resolve host|Temporary failure in name resolution|Network is unreachable|Connection reset by peer' "$log"
+  # Package fetches fail on the dependency URL, for example
+  # build.zig.zon:9:20: error: unable to connect to server: Timeout
+  grep -Eq 'build\.zig\.zon:[0-9]+:[0-9]+: error: unable to connect to server:' "$log"
 }
 
 attempt=1

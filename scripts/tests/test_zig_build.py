@@ -51,6 +51,20 @@ class ZigBuildTests(unittest.TestCase):
             self.assertIn("built build -Demit-macos-app=false -Doptimize=ReleaseFast", result.stdout)
             self.assertEqual(result.stderr.count("retrying"), 2)
 
+    def test_does_not_retry_tests_that_print_the_fetch_phrase(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            count = Path(tmp) / "count"
+            zig = self.write_zig(tmp, f"""\
+                #!/bin/bash
+                echo 1 >> {count}
+                echo '1/1 test.fetch... FAIL (unable to connect to server)' >&2
+                exit 1
+                """)
+            result = self.run_script(zig, "test")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(count.read_text().strip(), "1")
+            self.assertNotIn("retrying", result.stderr)
+
     def test_does_not_retry_compile_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
             count = Path(tmp) / "count"
