@@ -865,7 +865,9 @@ struct ProjectWindowLayoutTests {
     /// The popover is hosted in its own window, so search every window's
     /// accessibility tree rather than the sidebar's view hierarchy.
     private func waitForPopoverButton(labeled label: String) async throws -> (NSWindow, NSRect) {
-        for _ in 0..<100 {
+        // SwiftUI publishes the button after the popover is on screen. Poll
+        // for up to 15 seconds so a busy CI runner can finish presentation.
+        for _ in 0..<750 {
             // Start from content views: a popover is also an accessibility
             // child of its parent window, which must not receive the events.
             for window in NSApp.windows where window.isVisible {
