@@ -1,91 +1,46 @@
-import AppKit
 import SwiftUI
 
-/// A native field editor receives the system picker's insertion directly.
-/// The first valid emoji commits immediately; no visible editor or Done step.
-struct ProjectEmojiPicker: NSViewRepresentable {
-    let isPresented: Bool
+/// Project icon picker presented in a popover over the sidebar icon.
+/// A curated grid replaces the system Character Viewer, whose insertion
+/// never reliably reached an input client inside this SwiftUI sidebar.
+struct ProjectEmojiPicker: View {
     let onSelect: (String) -> Void
-    let onCancel: () -> Void
 
-    func makeNSView(context: Context) -> ProjectEmojiInputField {
-        let field = ProjectEmojiInputField(frame: .zero)
-        field.isBordered = false
-        field.isBezeled = false
-        field.drawsBackground = false
-        field.textColor = .clear
-        field.focusRingType = .none
-        field.isEditable = false
-        field.isSelectable = false
-        field.delegate = field
-        field.setAccessibilityElement(false)
-        return field
-    }
+    private static let columnCount = 8
 
-    func updateNSView(_ field: ProjectEmojiInputField, context: Context) {
-        field.onSelect = onSelect
-        field.onCancel = onCancel
-        field.setPresented(isPresented)
-    }
-}
-
-final class ProjectEmojiInputField: NSTextField, NSTextFieldDelegate {
-    var onSelect: (String) -> Void = { _ in }
-    var onCancel: () -> Void = {}
-    var showPicker: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
-    private(set) var isPresented = false
-    private var isFinishing = false
-
-    // Preserve normal sidebar selection while the picker is inactive.
-    override func hitTest(_ point: NSPoint) -> NSView? { isPresented ? super.hitTest(point) : nil }
-
-    func setPresented(_ presented: Bool) {
-        guard !isFinishing, presented != isPresented else { return }
-        isPresented = presented
-        isEditable = presented
-        isSelectable = presented
-        guard presented else { return }
-        stringValue = ""
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isPresented, let window = self.window,
-                  window.makeFirstResponder(self) else { return }
-            self.showPicker()
+    // The popover never scrolls, so a static grid builds every button (and
+    // its accessibility element) up front; a lazy grid would defer both.
+    var body: some View {
+        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(Array(stride(from: 0, to: Self.emojis.count, by: Self.columnCount)), id: \.self) { start in
+                GridRow {
+                    ForEach(Self.emojis[start..<min(start + Self.columnCount, Self.emojis.count)], id: \.self) { emoji in
+                        Button { onSelect(emoji) } label: {
+                            Text(emoji)
+                                .font(.system(size: 19))
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Choose \(emoji)")
+                    }
+                }
+            }
         }
+        .padding(10)
     }
 
-    func controlTextDidChange(_ notification: Notification) {
-        guard (currentEditor() as? NSTextView)?.hasMarkedText() != true,
-              let emoji = TerminalProject.normalizedEmoji(stringValue) else { return }
-        finish { [onSelect] in onSelect(emoji) }
-    }
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        cancelOperation(nil)
-        return true
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        finish(onCancel)
-    }
-
-    func controlTextDidEndEditing(_ notification: Notification) {
-        finish(onCancel)
-    }
-
-    private func finish(_ completion: @escaping () -> Void) {
-        guard isPresented, !isFinishing else { return }
-        isFinishing = true
-        // Character Viewer is still delivering text through the input system.
-        // End editing, rebuild the row, and restore terminal focus only after
-        // that callback returns, avoiding a reentrant input-method transition.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isFinishing = false
-            self.setPresented(false)
-            completion()
-        }
-    }
+    static let emojis: [String] = [
+        "📁", "📂", "🗂️", "💼", "🏠", "🏢", "🏗️", "🧱",
+        "🚀", "⚡", "🔥", "⭐", "🌟", "✨", "💡", "🎯",
+        "🎨", "🎭", "🎪", "🎬", "🎮", "🎲", "🎸", "🥁",
+        "📱", "💻", "🖥️", "⌨️", "💾", "🧮", "📷", "🎥",
+        "📺", "📻", "📡", "🔋", "🔌", "💰", "💳", "💎",
+        "🔧", "🔨", "⚙️", "🛠️", "🧪", "🧬", "🔬", "🔭",
+        "📈", "📉", "📊", "📋", "📌", "📍", "✏️", "📝",
+        "🔍", "🔒", "🔓", "🔑", "🛡️", "🏆", "🥇", "🎁",
+        "🎉", "📦", "📬", "✉️", "📅", "🌍", "🗺️", "🧭",
+    ]
 }
 
 @available(macOS 14.0, *)

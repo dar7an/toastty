@@ -1,2 +1,5 @@
 # Loaded before user configuration so every setting remains overridable.
 theme = light:Atom One Light,dark:Atom One Dark
+# Upstream's 5s expiry drops window/project undo entries before a user can
+# reasonably press Cmd+Z. Give destructive-action undo a usable window.
+undo-timeout = 60s

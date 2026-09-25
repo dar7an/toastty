@@ -1122,6 +1122,13 @@ class BaseTerminalController: NSWindowController,
         // We need a window to fullscreen
         guard let window = self.window else { return }
 
+        // toggleFullScreen invoked while a transition is in flight has
+        // undefined behavior: raced toggles can leave orphan NSWindows that
+        // keep rendering surface content. Replacing the style mid-transition
+        // would also drop the saved state non-native styles need to restore
+        // the window, so refuse before building or storing a new style.
+        guard !fullscreenTransition.isInFlight else { return }
+
         // If we have a previous fullscreen style initialized, we want to check if
         // our mode changed. If it changed and we're in fullscreen, we exit so we can
         // toggle it next time. If it changed and we're not in fullscreen we can just
@@ -1143,6 +1150,7 @@ class BaseTerminalController: NSWindowController,
             if newStyle == nil || type(of: newStyle!) != type(of: oldStyle) {
                 // Our mode changed. Exit fullscreen (since we're toggling anyways)
                 // and then set the new style for future use
+                beginFullscreenTransition()
                 oldStyle.exit()
                 self.fullscreenStyle = newStyle
 
@@ -1157,6 +1165,7 @@ class BaseTerminalController: NSWindowController,
         }
         guard let fullscreenStyle else { return }
 
+        beginFullscreenTransition()
         if fullscreenStyle.isFullscreen {
             fullscreenStyle.exit()
         } else {
@@ -1164,7 +1173,66 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Set on toggle. Completion and failure release it. The watchdog does not:
+    /// a native transition keeps the guard until AppKit reports the result, or
+    /// until the window has left the active Space and come back.
+    private var fullscreenTransition = FullscreenTransitionGuard()
+
+    /// Short enough to observe a normal Space animation leaving the active Space.
+    private static let fullscreenWatchInterval: TimeInterval = 0.1
+    /// A transition that never receives will-enter or will-exit is not animating.
+    private static let fullscreenUnstartedGrace: TimeInterval = 2
+    /// Stop polling if AppKit never finishes or fails the transition.
+    private static let fullscreenWatchGiveUp: TimeInterval = 30
+
+    /// Must be called before enter()/exit(): non-native styles notify the
+    /// delegate synchronously on exit, which ends the transition.
+    private func beginFullscreenTransition() {
+        let id = fullscreenTransition.begin()
+        scheduleFullscreenWatchdog(id, started: Date())
+    }
+
+    private func scheduleFullscreenWatchdog(_ id: UInt64, started: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.fullscreenWatchInterval) { [weak self] in
+            self?.watchFullscreenTransition(id, started: started)
+        }
+    }
+
+    private func watchFullscreenTransition(_ id: UInt64, started: Date) {
+        let elapsed = Date().timeIntervalSince(started)
+        let outcome = fullscreenTransition.evaluateWatchdog(
+            id,
+            isOnActiveSpace: window?.isOnActiveSpace ?? true,
+            windowIsGone: window == nil || isWindowClosed,
+            unstartedGraceElapsed: elapsed >= Self.fullscreenUnstartedGrace,
+            giveUpElapsed: elapsed >= Self.fullscreenWatchGiveUp
+        )
+        switch outcome {
+        case .ignore:
+            return
+        case .keep:
+            scheduleFullscreenWatchdog(id, started: started)
+        case .reconcile, .failed:
+            guard !isWindowClosed, window != nil else { return }
+            syncFullscreenChrome()
+        }
+    }
+
+    func fullscreenNativeTransitionWillBegin() {
+        fullscreenTransition.noteNativeBegan()
+    }
+
+    func fullscreenNativeTransitionDidEnd() {
+        fullscreenTransition.endNativeCompletion()
+        syncFullscreenChrome()
+    }
+
     func fullscreenDidChange() {
+        fullscreenTransition.end()
+        syncFullscreenChrome()
+    }
+
+    private func syncFullscreenChrome() {
         guard let fullscreenStyle else { return }
 
         // When we enter fullscreen, we want to show the update overlay so that it
@@ -1223,6 +1291,21 @@ class BaseTerminalController: NSWindowController,
 
     // MARK: NSWindowDelegate
 
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        fullscreenTransitionDidFail(window)
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        fullscreenTransitionDidFail(window)
+    }
+
+    private func fullscreenTransitionDidFail(_ window: NSWindow) {
+        guard window === self.window else { return }
+        fullscreenTransition.fail()
+        guard !isWindowClosed else { return }
+        syncFullscreenChrome()
+    }
+
     /// Check whether window should be closed without showing an alert
     func windowCanBeClosedWithoutConfirmation() -> Bool {
         // We must have a window. Is it even possible not to?
@@ -1266,6 +1349,7 @@ class BaseTerminalController: NSWindowController,
     func windowWillClose(_ notification: Notification) {
         guard let window else { return }
         isWindowClosed = true
+        fullscreenTransition.fail()
 
         for surfaceView in surfaceTree {
             cancelPendingClipboardConfirmation(for: surfaceView)
