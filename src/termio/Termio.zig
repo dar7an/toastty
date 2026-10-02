@@ -290,6 +290,21 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     var backend = opts.backend;
     backend.initTerminal(&term);
 
+    // Publish the initial working directory seeded by the backend so
+    // surfaces get a pwd even when the running program never reports
+    // one via OSC 7 (e.g. shell integration isn't loaded). This runs
+    // on the app thread while the surface is being created, so we can't
+    // block; if the mailbox is full the message is dropped which is fine
+    // since the pwd is still readable through the terminal state.
+    if (term.getPwd()) |pwd| {
+        if (apprt.surface.Message.WriteReq.init(alloc, pwd)) |req| {
+            if (opts.surface_mailbox.push(
+                .{ .pwd_change = req },
+                .{ .instant = {} },
+            ) == 0) req.deinit();
+        } else |_| {}
+    }
+
     // Create our stream handler. This points to memory in self so it
     // isn't safe to use until self.* is set.
     const handler: StreamHandler = .{

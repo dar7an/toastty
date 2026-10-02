@@ -2086,11 +2086,26 @@ pub fn selectionString(self: *Surface, alloc: Allocator) !?[:0]const u8 {
 /// the pwd can change at any point from termio. If we are calling from the IO
 /// thread you should just check the terminal directly.
 pub fn pwd(
-    self: *const Surface,
+    self: *Surface,
     alloc: Allocator,
 ) Allocator.Error!?[]const u8 {
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
+
+    // A shell-reported pwd (OSC 7) is authoritative since it's the only
+    // source that can describe a remote session. When the shell never
+    // reported one, `pwd` may only be the spawn directory seed which
+    // goes stale as soon as the process changes directories, so we
+    // probe the foreground process directly.
+    if (!self.io.terminal.pwd_reported) {
+        if (self.getProcessInfo(.foreground_pid)) |pid| {
+            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            if (internal_os.processWorkingDirectory(pid, &buf)) |cwd| {
+                return try alloc.dupe(u8, cwd);
+            }
+        }
+    }
+
     const terminal_pwd = self.io.terminal.getPwd() orelse return null;
     return try alloc.dupe(u8, terminal_pwd);
 }
