@@ -307,9 +307,15 @@ class TerminalWindow: NSWindow {
     /// Keep AppKit's terminal lifecycle but put navigation in the content column.
     func hideProjectNativeTabBar() {
         guard terminalController?.usesProjectSidebar == true else { return }
-        for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
+        for (index, accessory) in titlebarAccessoryViewControllers.enumerated().reversed() where isTabBar(accessory) {
             accessory.isHidden = true
             accessory.view.setAccessibilityHidden(true)
+            // A hidden bottom accessory still reserves its fullScreenMinHeight
+            // in the fullscreen toolbar window, leaving a blank band plus a
+            // separator below the toolbar. Removing it collapses the
+            // reservation; AppKit re-adds it on the next activation and our
+            // addTitlebarAccessoryViewController override removes it again.
+            removeTitlebarAccessoryViewController(at: index)
         }
         // AppKit moves the titlebar into a separate window in fullscreen.
         // Its synthesized tab accessibility elements bypass our window override.
@@ -367,6 +373,12 @@ class TerminalWindow: NSWindow {
             if terminalController?.usesProjectSidebar == true {
                 childViewController.isHidden = true
                 childViewController.view.setAccessibilityHidden(true)
+                // We are inside AppKit's accessory-add path, so the removal
+                // is deferred: a hidden bottom accessory still reserves
+                // fullScreenMinHeight in the fullscreen toolbar window.
+                DispatchQueue.main.async { [weak self] in
+                    self?.hideProjectNativeTabBar()
+                }
             }
             tabBarDidAppear()
         }
