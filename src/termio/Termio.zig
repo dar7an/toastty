@@ -69,6 +69,17 @@ terminal_stream: StreamHandler.Stream,
 /// flooding with cursor resets.
 last_cursor_reset: ?std.Io.Timestamp = null,
 
+/// Last time the foreground process working directory was probed.
+/// This is used to bound the cost of publishing unreported pwd
+/// changes under heavy output.
+last_pwd_probe: ?std.Io.Timestamp = null,
+
+/// The last working directory our foreground process probe published
+/// via .pwd_change, allocated with our allocator. This tracks only
+/// probed values; OSC 7 reports and the initial seed don't update it
+/// since a shell-reported pwd disables probing entirely.
+last_published_pwd: ?[]u8 = null,
+
 /// State we have for thread enter. This may be null if we don't need
 /// to keep track of any state or if its already been freed.
 thread_enter_state: ?*ThreadEnterState = null,
@@ -351,6 +362,7 @@ pub fn deinit(self: *Termio) void {
     self.terminal.deinit(self.alloc);
     self.config.deinit();
     self.mailbox.deinit(self.alloc);
+    if (self.last_published_pwd) |pwd| self.alloc.free(pwd);
 
     // Clear any StreamHandler state
     self.terminal_stream.deinit();
@@ -743,6 +755,53 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     if (self.terminal_stream.handler.termio_messaged) {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
+    }
+
+    // When the shell never reports a pwd via OSC 7 the published pwd
+    // (the seed pushed at init) goes stale as soon as the foreground
+    // process changes directories. A read batch is the cheapest
+    // correct trigger to re-probe: a `cd` always emits output, if only
+    // a fresh prompt, and the timestamp bounds the platform probe cost
+    // to once per interval no matter how much output flows. A shell
+    // reported pwd remains authoritative so the probe is skipped
+    // entirely until the report is cleared or never arrives.
+    if (!self.terminal.pwd_reported) probe_pwd: {
+        if (self.last_pwd_probe) |last| {
+            if (last.durationTo(now).toMilliseconds() <= 500) {
+                break :probe_pwd;
+            }
+        }
+        self.last_pwd_probe = now;
+
+        const pid = self.getProcessInfo(.foreground_pid) orelse
+            break :probe_pwd;
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const cwd = internal_os.processWorkingDirectory(pid, &path_buf) orelse
+            break :probe_pwd;
+        if (self.last_published_pwd) |last| {
+            if (std.mem.eql(u8, last, cwd)) break :probe_pwd;
+        }
+
+        // Publish through the same .pwd_change channel as the seed and
+        // OSC 7 reports so every apprt observer stays accurate. If the
+        // mailbox is full we drop the update rather than block the IO
+        // thread; last_published_pwd isn't updated on failure so the
+        // next interval retries.
+        const req = apprt.surface.Message.WriteReq.init(
+            self.alloc,
+            cwd,
+        ) catch break :probe_pwd;
+        if (self.surface_mailbox.push(
+            .{ .pwd_change = req },
+            .{ .instant = {} },
+        ) == 0) {
+            req.deinit();
+            break :probe_pwd;
+        }
+
+        const copy = self.alloc.dupe(u8, cwd) catch break :probe_pwd;
+        if (self.last_published_pwd) |last| self.alloc.free(last);
+        self.last_published_pwd = copy;
     }
 }
 
