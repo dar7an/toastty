@@ -766,13 +766,12 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // reported pwd remains authoritative so the probe is skipped
     // entirely until the report is cleared or never arrives.
     if (!self.terminal.pwd_reported) probe_pwd: {
-        const probe_now = std.Io.Timestamp.now(global.io(), .awake);
         if (self.last_pwd_probe) |last| {
-            if (last.durationTo(probe_now).toMilliseconds() <= 500) {
+            if (last.durationTo(now).toMilliseconds() <= 500) {
                 break :probe_pwd;
             }
         }
-        self.last_pwd_probe = probe_now;
+        self.last_pwd_probe = now;
 
         const pid = self.getProcessInfo(.foreground_pid) orelse
             break :probe_pwd;
