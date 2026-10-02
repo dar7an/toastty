@@ -88,6 +88,8 @@ struct TabSidebarModelTests {
         let core = try #require(app.app)
         let first = Ghostty.SurfaceView(core)
         let second = Ghostty.SurfaceView(core)
+        try await waitForStartupDirectory(on: first, app: app)
+        try await waitForStartupDirectory(on: second, app: app)
         let controller = TerminalController(app, withSurfaceTree: .init())
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -132,6 +134,9 @@ struct TabSidebarModelTests {
         let core = try #require(app.app)
         let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha-dir")
         let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
+        for surface in surfaces {
+            try await waitForStartupDirectory(on: surface, app: app)
+        }
         let controllers = [alpha, alpha].enumerated().map { index, project in
             let controller = TerminalController(app, withSurfaceTree: .init())
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -624,6 +629,8 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
+        try await waitForStartupDirectory(on: surface, app: app)
+        surface.pwd = nil
         let controller = TerminalController(app, withSurfaceTree: .init())
         // Unavailable initial directory: generic name, no subtitle source.
         #expect(controller.project.directory == nil)
@@ -867,5 +874,15 @@ struct TabSidebarModelTests {
                 DispatchQueue.main.async { continuation.resume() }
             }
         }
+    }
+
+    private func waitForStartupDirectory(on surface: Ghostty.SurfaceView, app: Ghostty.App) async throws {
+        // A real surface reports its launch directory asynchronously. Let that
+        // report arrive before tests supply their own pwd transitions.
+        for _ in 0..<100 where surface.pwd == nil {
+            app.appTick()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        _ = try #require(surface.pwd)
     }
 }

@@ -1469,6 +1469,7 @@ pub const StreamHandler = struct {
         if (url.len == 0) {
             // Blank value can never fail because no allocs happen.
             self.terminal.setPwd("") catch unreachable;
+            self.terminal.pwd_reported = false;
 
             // If we haven't seen a title, we're using the pwd as our title.
             // Set it to blank which will reset our title behavior.
@@ -1538,6 +1539,7 @@ pub const StreamHandler = struct {
 
         log.debug("terminal pwd: {s}", .{path});
         try self.terminal.setPwd(path);
+        self.terminal.pwd_reported = true;
 
         // Report it to the surface. If creating our write request fails
         // then we just ignore it.

@@ -69,6 +69,12 @@ scrolling_region: ScrollingRegion,
 /// The last reported pwd, if any.
 pwd: std.ArrayList(u8),
 
+/// Whether `pwd` was last set from a shell-reported OSC 7 sequence.
+/// When false, `pwd` came from another source (such as the initial
+/// subprocess working directory) and may be stale relative to the
+/// foreground process's actual working directory.
+pwd_reported: bool = false,
+
 /// The title of the terminal as set by escape sequences (e.g. OSC 0/2).
 title: std.ArrayList(u8),
 
@@ -4929,6 +4935,7 @@ pub fn fullReset(self: *Terminal) void {
     self.tabstops.reset(TABSTOP_INTERVAL);
     self.previous_char = null;
     self.pwd.clearRetainingCapacity();
+    self.pwd_reported = false;
     self.title.clearRetainingCapacity();
     self.glyph_glossary.clearAndFree(self.gpa());
     // A reset only interrupts an in-progress chunked OSC 72 command;
