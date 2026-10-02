@@ -66,6 +66,7 @@ test {
     _ = edit;
     _ = i18n;
     _ = path;
+    _ = process;
     _ = uri;
     _ = shell;
 

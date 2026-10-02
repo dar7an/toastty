@@ -12,8 +12,13 @@ pub fn workingDirectory(
     pid: u64,
     buf: *[std.fs.max_path_bytes]u8,
 ) ?[:0]const u8 {
+    // Process IDs are positive signed ints on both supported platforms.
+    // Validate before formatting the bounded /proc path as well as before
+    // calling libproc, so an invalid u64 never overflows the path buffer.
+    const pid_int = std.math.cast(c_int, pid) orelse return null;
+    if (pid_int <= 0) return null;
+
     if (comptime builtin.os.tag == .macos) {
-        const pid_int = std.math.cast(c_int, pid) orelse return null;
         var info: c.proc_vnodepathinfo = undefined;
         const rc = c.proc_pidinfo(
             pid_int,
@@ -40,7 +45,7 @@ pub fn workingDirectory(
         const proc_path = std.fmt.bufPrintSentinel(
             &path_buf,
             "/proc/{d}/cwd",
-            .{pid},
+            .{pid_int},
             0,
         ) catch unreachable;
         while (true) {
@@ -81,8 +86,10 @@ test "workingDirectory returns the cwd of this process" {
     const ours = workingDirectory(
         @intCast(std.c.getpid()),
         &buf,
-    ) orelse return error.SkipZigTest;
+    ) orelse return error.TestUnexpectedResult;
     try testing.expectEqualStrings(cwd, ours);
+    try testing.expect(workingDirectory(0, &buf) == null);
+    try testing.expect(workingDirectory(std.math.maxInt(u64), &buf) == null);
 }
 
 const c = struct {

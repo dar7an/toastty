@@ -370,6 +370,34 @@ struct ProjectWindowLayoutTests {
         #expect(frame != window.convertToScreen(strip.convert(strip.bounds, to: nil)))
     }
 
+    @Test func projectWindowRemovesReaddedNativeTabAccessory() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let fixture = makeWindow(app, width: 220)
+        let window = fixture.window
+        defer { fixture.controller.window = nil; window.close() }
+
+        let otherAccessory = NSTitlebarAccessoryViewController()
+        otherAccessory.identifier = NSUserInterfaceItemIdentifier("project-test-other-accessory")
+        otherAccessory.layoutAttribute = .right
+        otherAccessory.view = NSView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        window.addTitlebarAccessoryViewController(otherAccessory)
+
+        // AppKit can add the native tab accessory again when a tab becomes active.
+        for _ in 0..<2 {
+            let tabAccessory = NSTitlebarAccessoryViewController()
+            tabAccessory.identifier = TerminalWindow.tabBarIdentifier
+            tabAccessory.layoutAttribute = .bottom
+            tabAccessory.fullScreenMinHeight = 36
+            tabAccessory.view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 36))
+            window.addTitlebarAccessoryViewController(tabAccessory)
+            await drainMainQueue()
+
+            #expect(!window.titlebarAccessoryViewControllers.contains { $0 === tabAccessory })
+            #expect(window.titlebarAccessoryViewControllers.contains { $0 === otherAccessory })
+        }
+    }
+
     @Test func nativeToolbarFillsAvailableWidthAndPreservesTerminalHeight() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
