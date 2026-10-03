@@ -516,7 +516,14 @@ fn pwdProbeCallback(
         io.terminal.pwd_reported,
         io.pwdProbeDueLocked(now),
     )) {
-        .retry => return .rearm,
+        .retry => cb.self.pwd_probe.run(
+            &cb.self.loop,
+            &cb.self.pwd_probe_c,
+            termio.Termio.pwd_probe_interval_ms,
+            CallbackData,
+            cb,
+            pwdProbeCallback,
+        ),
         .discard => io.pwd_probe_pending.store(false, .seq_cst),
         .probe => {
             io.pwd_probe_pending.store(false, .seq_cst);

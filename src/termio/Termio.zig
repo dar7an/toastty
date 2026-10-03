@@ -824,19 +824,25 @@ pub fn probeAndPublishPwdLocked(self: *Termio, now: std.Io.Timestamp) void {
         // mailbox is full we drop the update rather than block the IO
         // thread; last_published_pwd isn't updated on failure so the
         // next interval retries.
+        // Allocate the cache before delivery so an allocation failure cannot
+        // publish a change without recording it for duplicate suppression.
+        const copy = self.alloc.dupe(u8, cwd) catch break :probe_pwd;
         const req = apprt.surface.Message.WriteReq.init(
             self.alloc,
             cwd,
-        ) catch break :probe_pwd;
+        ) catch {
+            self.alloc.free(copy);
+            break :probe_pwd;
+        };
         if (self.surface_mailbox.push(
             .{ .pwd_change = req },
             .{ .instant = {} },
         ) == 0) {
             req.deinit();
+            self.alloc.free(copy);
             break :probe_pwd;
         }
 
-        const copy = self.alloc.dupe(u8, cwd) catch break :probe_pwd;
         if (self.last_published_pwd) |last| self.alloc.free(last);
         self.last_published_pwd = copy;
     }
