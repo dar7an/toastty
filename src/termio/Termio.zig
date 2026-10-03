@@ -813,7 +813,7 @@ pub fn probeAndPublishPwdLocked(self: *Termio, now: std.Io.Timestamp) void {
         const pid = self.getProcessInfo(.foreground_pid) orelse
             break :probe_pwd;
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const cwd = internal_os.processWorkingDirectory(pid, &path_buf) orelse
+        const cwd = internal_os.foregroundWorkingDirectory(pid, &path_buf) orelse
             break :probe_pwd;
         if (self.last_published_pwd) |last| {
             if (std.mem.eql(u8, last, cwd)) break :probe_pwd;

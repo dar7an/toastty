@@ -89,8 +89,8 @@ struct TabSidebarModelTests {
         let core = try #require(app.app)
         let first = Ghostty.SurfaceView(core)
         let second = Ghostty.SurfaceView(core)
-        try await waitForStartupDirectory(on: first, app: app)
-        try await waitForStartupDirectory(on: second, app: app)
+        try await waitForSyntheticDirectory(on: first, app: app)
+        try await waitForSyntheticDirectory(on: second, app: app)
         let controller = TerminalController(app, withSurfaceTree: .init())
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -129,14 +129,14 @@ struct TabSidebarModelTests {
     }
 
     @Test func directoryPrefersSelectedTabsLivePwd() async throws {
-        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         Self.directoryFixtureApp = app
         let core = try #require(app.app)
         let alpha = TerminalProject(name: "Alpha", directory: "/tmp/alpha-dir")
         let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
         for surface in surfaces {
-            try await waitForStartupDirectory(on: surface, app: app)
+            try await waitForSyntheticDirectory(on: surface, app: app)
         }
         let controllers = [alpha, alpha].enumerated().map { index, project in
             let controller = TerminalController(app, withSurfaceTree: .init())
@@ -632,7 +632,7 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
-        try await waitForStartupDirectory(on: surface, app: app)
+        try await waitForSyntheticDirectory(on: surface, app: app)
         surface.pwd = nil
         let controller = TerminalController(app, withSurfaceTree: .init())
         // Unavailable initial directory: generic name, no subtitle source.
@@ -684,14 +684,14 @@ struct TabSidebarModelTests {
     }
 
     @Test func projectDirectoryTracksAnchorTabLiveCwd() async throws {
-        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         Self.directoryFixtureApp = app
         let core = try #require(app.app)
         let alpha = TerminalProject(directory: "/tmp/alpha")
         let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
         for surface in surfaces {
-            try await waitForStartupDirectory(on: surface, app: app)
+            try await waitForSyntheticDirectory(on: surface, app: app)
         }
         let controllers = [alpha, alpha].enumerated().map { index, project in
             let controller = TerminalController(app, withSurfaceTree: .init())
@@ -768,7 +768,7 @@ struct TabSidebarModelTests {
         #expect(tab.project.id == parent.project.id)
         let surface = try #require(tab.focusedSurface)
         try await waitForStartupDirectory(on: surface, app: app)
-        #expect(surface.pwd == "/tmp")
+        #expect(try surface.pwd.map { try physicalPath(URL(fileURLWithPath: $0)) } == physicalPath(URL(fileURLWithPath: "/tmp")))
 
         tab.focusedSurface = nil
         await drainMainQueue()
@@ -803,7 +803,7 @@ struct TabSidebarModelTests {
             app, from: window, withBaseConfig: inherited, registerUndo: false))
         let surface = try #require(tab.focusedSurface)
         try await waitForStartupDirectory(on: surface, app: app)
-        #expect(surface.pwd == "/tmp")
+        #expect(try surface.pwd.map { try physicalPath(URL(fileURLWithPath: $0)) } == physicalPath(URL(fileURLWithPath: "/tmp")))
 
         tab.focusedSurface = nil
         await drainMainQueue()
@@ -845,7 +845,7 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
-        try await waitForStartupDirectory(on: surface, app: app)
+        try await waitForSyntheticDirectory(on: surface, app: app)
         surface.pwd = "/tmp/remembered"
         // Legacy shape: preserved name, no directory yet.
         let legacy = TerminalProject(name: "Legacy")
@@ -881,7 +881,7 @@ struct TabSidebarModelTests {
         let first = Ghostty.SurfaceView(core)
         let second = Ghostty.SurfaceView(core)
         for surface in [first, second] {
-            try await waitForStartupDirectory(on: surface, app: app)
+            try await waitForSyntheticDirectory(on: surface, app: app)
         }
         first.pwd = "/tmp/aaa"
         second.pwd = "/tmp/bbb"
@@ -1047,6 +1047,160 @@ struct TabSidebarModelTests {
         #expect(undo.sidebarState == sidebar)
     }
 
+    @Test func livePtyCwdReportsReachProjectAndNewTabs() async throws {
+        let files = FileManager.default
+        let root = files.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
+        let alpha = root.appendingPathComponent("alpha")
+        let beta = root.appendingPathComponent("beta")
+        let gamma = root.appendingPathComponent("gamma")
+        for directory in [alpha, beta, gamma] {
+            try files.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? files.removeItem(at: root) }
+        // Foundation and libproc can spell macOS's temp directory as /var
+        // and /private/var respectively. Use the kernel's physical spelling
+        // for both the launch config and the expected cwd reports.
+        let alphaPath = try physicalPath(alpha)
+        let betaPath = try physicalPath(beta)
+        let gammaPath = try physicalPath(gamma)
+
+        // A non-interactive shell wrapper stays in login(1)'s foreground
+        // group, just like Kiro's outer PTY wrapper. It accepts real terminal
+        // input and evaluates ordinary cd builtins, without OSC 7 reporting.
+        let wrapper = root.appendingPathComponent("wrapper.sh")
+        try """
+        if [ "$(/bin/ps -o uid= -p "$PPID")" -eq 0 ] && \\
+           [ "$(/bin/ps -o pgid= -p $$)" -eq "$PPID" ]; then
+          printf 'LOGIN_TOPOLOGY\\n'
+        fi
+        printf 'READY\\n'
+        while IFS= read -r command; do
+          eval "$command"
+          printf 'READY\\n'
+        done
+        """.write(to: wrapper, atomically: true, encoding: .utf8)
+        let config = try TemporaryConfig("""
+        macos-tabs-sidebar = true
+        shell-integration = none
+        working-directory = \(alphaPath)
+        command = direct:/bin/sh \(wrapper.path)
+        """)
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        Self.directoryFixtureApp = app
+        let parent = TerminalController(app)
+        var ptyViews = parent.surfaceTree.root?.leaves() ?? []
+        defer { stopPtyViews(ptyViews, app: app) }
+        let surface = try #require(parent.surfaceTree.first)
+        parent.focusedSurface = surface
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .preferred
+        window.contentView = surface
+        parent.window = window
+        ghostty_surface_set_size(surface.surface, 800, 600)
+        defer {
+            let grouped = window.tabGroup?.windows ?? [window]
+            for member in grouped {
+                if let controller = member.windowController as? TerminalController {
+                    controller.focusedSurface = nil
+                    controller.surfaceTree = .init()
+                    controller.window = nil
+                }
+                member.contentView = nil
+                member.close()
+            }
+        }
+        let model = window.projectSidebarModel
+        await drainMainQueue()
+        try await waitForPty(app, "wrapper prompt") { self.ptyText(surface).contains("READY") }
+        #expect(ptyText(surface).contains("LOGIN_TOPOLOGY"))
+        try await waitForPty(app, "initial cwd") { surface.pwd == alphaPath }
+
+        sendPtyCommand("cd '\(betaPath)'; pwd", to: surface)
+        try await waitForPty(app, "ordinary cd propagation") {
+            surface.pwd == betaPath && parent.project.directory == betaPath
+                && model.directory(for: parent.project) == betaPath
+        }
+        #expect(parent.project.displayName == "beta")
+        #expect(ptyText(surface).contains(betaPath))
+
+        // Two changes in one input batch followed by idle exercise the trailing
+        // probe and the complete IO -> action -> publisher -> sidebar path.
+        parent.project.nameOverride = "Pinned"
+        sendPtyCommand("cd '\(alphaPath)'; cd '\(gammaPath)'; pwd", to: surface)
+        try await waitForPty(app, "rapid cd propagation") { surface.pwd == gammaPath && parent.project.directory == gammaPath }
+        #expect(parent.project.displayName == "Pinned")
+        #expect(model.directory(for: parent.project) == gammaPath)
+
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        ptyViews += tab.surfaceTree.root?.leaves() ?? []
+        let tabSurface = try #require(tab.focusedSurface)
+        try await waitForPty(app, "new tab prompt") { self.ptyText(tabSurface).contains("READY") }
+        sendPtyCommand("pwd", to: tabSurface)
+        try await waitForPty(app, "new tab pwd output") { self.ptyText(tabSurface).contains(gammaPath) }
+        #expect(tab.project.id == parent.project.id)
+        #expect(tabSurface.pwd == gammaPath)
+        #expect(tab.project.displayName == "Pinned")
+
+        // An accepted OSC 7 path can represent a remote session. A subsequent
+        // local process cwd change must not overwrite that authoritative path.
+        sendPtyCommand("printf '\\033]7;file://localhost/remote/project\\007'; cd '\(betaPath)'; pwd", to: tabSurface)
+        try await waitForPty(app, "OSC 7 authority") {
+            tabSurface.pwd == "/remote/project" && self.ptyText(tabSurface).contains(betaPath)
+        }
+        for _ in 0..<70 {
+            app.appTick()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(tabSurface.pwd == "/remote/project")
+        #expect(tab.project.directory == "/remote/project")
+    }
+
+    private func physicalPath(_ url: URL) throws -> String {
+        let path = try #require(realpath(url.path, nil))
+        defer { free(path) }
+        return String(cString: path)
+    }
+
+    private func sendPtyCommand(_ command: String, to view: Ghostty.SurfaceView) {
+        (command + "\n").withCString { text in
+            ghostty_surface_text(view.surface, text, UInt(strlen(text)))
+        }
+    }
+
+    private func stopPtyViews(_ views: [Ghostty.SurfaceView], app: Ghostty.App) {
+        for view in views where !view.processExited { sendPtyCommand("exit", to: view) }
+        for _ in 0..<200 where views.contains(where: { !$0.processExited }) {
+            app.appTick()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        let stopped = views.allSatisfy { $0.processExited }
+        #expect(stopped, "Test wrapper processes must exit before fixture files are removed")
+    }
+
+    private func ptyText(_ view: Ghostty.SurfaceView) -> String {
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false)
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(view.surface, selection, &text) else { return "" }
+        defer { ghostty_surface_free_text(view.surface, &text) }
+        return String(cString: text.text)
+    }
+
+    private func waitForPty(_ app: Ghostty.App, _ label: String, until condition: () -> Bool) async throws {
+        for _ in 0..<300 {
+            app.appTick()
+            await drainMainQueue()
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(condition(), "Real PTY \(label) did not complete")
+        try #require(condition())
+    }
+
     private func drainMainQueue() async {
         // Row rebuilding and Combine delivery each defer one main-queue turn.
         for _ in 0..<3 {
@@ -1064,5 +1218,16 @@ struct TabSidebarModelTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         _ = try #require(surface.pwd)
+    }
+
+    private func waitForSyntheticDirectory(on surface: Ghostty.SurfaceView, app: Ghostty.App) async throws {
+        // Observer-only tests assign artificial pwd values, including nil.
+        // Wait for their /usr/bin/true fixture to finish and deliver all real
+        // startup reports first, so those reports cannot replace the values
+        // being used to test selection, focus, naming, and legacy migration.
+        try await waitForStartupDirectory(on: surface, app: app)
+        try await waitForPty(app, "synthetic fixture exit") { surface.processExited }
+        app.appTick()
+        await drainMainQueue()
     }
 }

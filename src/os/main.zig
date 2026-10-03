@@ -59,6 +59,7 @@ pub const ShellEscapeWriter = shell.ShellEscapeWriter;
 pub const getKernelInfo = kernel_info.getKernelInfo;
 pub const getConfigEditCommand = edit.getConfigEditCommand;
 pub const processWorkingDirectory = process.workingDirectory;
+pub const foregroundWorkingDirectory = process.foregroundWorkingDirectory;
 
 test {
     _ = file;

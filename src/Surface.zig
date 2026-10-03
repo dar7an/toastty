@@ -2107,7 +2107,7 @@ fn pwdLocked(self: *Surface, buf: *[std.fs.max_path_bytes]u8) ?[]const u8 {
     // probe the foreground process directly.
     if (!self.io.terminal.pwd_reported) {
         if (self.getProcessInfo(.foreground_pid)) |pid| {
-            if (internal_os.processWorkingDirectory(pid, buf)) |cwd| return cwd;
+            if (internal_os.foregroundWorkingDirectory(pid, buf)) |cwd| return cwd;
         }
     }
 
