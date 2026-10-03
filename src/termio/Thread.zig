@@ -73,6 +73,14 @@ sync_reset: xev.Timer,
 sync_reset_c: xev.Completion = .{},
 sync_reset_cancel_c: xev.Completion = .{},
 
+/// This timer re-probes the foreground process working directory
+/// once output settles when the shell doesn't report a pwd via
+/// OSC 7. The reader sets Termio.pwd_probe_pending when a batch
+/// arrives inside the probe interval; we arm this on drain.
+pwd_probe: xev.Timer,
+pwd_probe_c: xev.Completion = .{},
+pwd_probe_cancel_c: xev.Completion = .{},
+
 flags: packed struct {
     /// This is set to true only when an abnormal exit is detected. It
     /// tells our mailbox system to drain and ignore all messages.
@@ -112,6 +120,10 @@ pub fn init(
     var sync_reset_h = try xev.Timer.init();
     errdefer sync_reset_h.deinit();
 
+    // This timer retries an unreported foreground cwd probe.
+    var pwd_probe_h = try xev.Timer.init();
+    errdefer pwd_probe_h.deinit();
+
     return Thread{
         .alloc = alloc,
         .loop = loop,
@@ -119,6 +131,7 @@ pub fn init(
         .scroll = scroll_h,
         .coalesce = coalesce_h,
         .sync_reset = sync_reset_h,
+        .pwd_probe = pwd_probe_h,
     };
 }
 
@@ -128,6 +141,7 @@ pub fn deinit(self: *Thread) void {
     self.scroll.deinit();
     self.coalesce.deinit();
     self.sync_reset.deinit();
+    self.pwd_probe.deinit();
     self.stop.deinit();
     self.loop.deinit();
 }
@@ -368,6 +382,24 @@ fn drainMailbox(
         }
     }
 
+    // If the reader skipped a foreground cwd probe because a batch
+    // arrived inside the probe interval, schedule a trailing retry
+    // so the probe still runs once output settles, even when no
+    // further messages arrive to wake us.
+    if (self.pwd_probe_c.state() == .dead and
+        io.pwd_probe_pending.load(.seq_cst))
+    {
+        self.pwd_probe.reset(
+            &self.loop,
+            &self.pwd_probe_c,
+            &self.pwd_probe_cancel_c,
+            termio.Termio.pwd_probe_interval_ms,
+            CallbackData,
+            cb,
+            pwdProbeCallback,
+        );
+    }
+
     // Trigger a redraw after we've drained so we don't waste cyces
     // messaging a redraw.
     if (redraw) {
@@ -446,6 +478,37 @@ fn coalesceCallback(
         cb.io.resize(&cb.data, v) catch |err| {
             log.warn("error during resize err={}", .{err});
         };
+    }
+
+    return .disarm;
+}
+
+fn pwdProbeCallback(
+    cb_: ?*CallbackData,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch |err| switch (err) {
+        error.Canceled => {},
+        else => {
+            log.warn("error during pwd probe callback err={}", .{err});
+            return .disarm;
+        },
+    };
+
+    const cb = cb_ orelse return .disarm;
+    const io = cb.io;
+
+    io.renderer_state.mutex.lockUncancelable(global.io());
+    defer io.renderer_state.mutex.unlock(global.io());
+
+    // Consume the flag before checking the gate so a batch that
+    // skips again during this probe re-flags and re-arms.
+    io.pwd_probe_pending.store(false, .seq_cst);
+    const now = std.Io.Timestamp.now(global.io(), .awake);
+    if (io.pwdProbeDueLocked(now)) {
+        io.probeAndPublishPwdLocked(now);
     }
 
     return .disarm;

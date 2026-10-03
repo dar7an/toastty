@@ -28,6 +28,11 @@ const log = std.log.scoped(.io_exec);
 /// Mutex state argument for queueMessage.
 pub const MutexState = enum { locked, unlocked };
 
+/// Minimum milliseconds between foreground working-directory probes
+/// when the shell does not report a pwd via OSC 7. The writer
+/// thread's trailing retry timer uses the same interval.
+pub const pwd_probe_interval_ms = 500;
+
 /// Allocator
 alloc: Allocator,
 
@@ -79,6 +84,13 @@ last_pwd_probe: ?std.Io.Timestamp = null,
 /// probed values; OSC 7 reports and the initial seed don't update it
 /// since a shell-reported pwd disables probing entirely.
 last_published_pwd: ?[]u8 = null,
+
+/// Set when a read batch skipped a foreground cwd probe because it
+/// arrived inside the rate interval, telling the writer thread to run
+/// a trailing probe once output settles. Cleared by the writer when
+/// its retry timer fires. All writes happen under the renderer lock
+/// but the writer reads it without the lock, so it must be atomic.
+pwd_probe_pending: std.atomic.Value(bool) = .init(false),
 
 /// State we have for thread enter. This may be null if we don't need
 /// to keep track of any state or if its already been freed.
@@ -765,12 +777,37 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // to once per interval no matter how much output flows. A shell
     // reported pwd remains authoritative so the probe is skipped
     // entirely until the report is cleared or never arrives.
-    if (!self.terminal.pwd_reported) probe_pwd: {
-        if (self.last_pwd_probe) |last| {
-            if (last.durationTo(now).toMilliseconds() <= 500) {
-                break :probe_pwd;
-            }
+    if (self.pwdProbeDueLocked(now)) {
+        self.probeAndPublishPwdLocked(now);
+    } else if (!self.terminal.pwd_reported) {
+        // A batch inside the probe interval — likely the prompt
+        // redraw right after a `cd` — must still yield a probe once
+        // output settles, so flag the writer thread to run a
+        // trailing retry. Its mailbox wakeup runs even if no
+        // further output arrives.
+        if (!self.pwd_probe_pending.swap(true, .seq_cst)) {
+            self.mailbox.notify();
         }
+    }
+}
+
+/// True when a foreground working-directory probe is due: the shell
+/// has not reported a pwd via OSC 7 and the probe interval has
+/// elapsed since the last probe. Callers must hold the renderer lock.
+pub fn pwdProbeDueLocked(self: *Termio, now: std.Io.Timestamp) bool {
+    if (self.terminal.pwd_reported) return false;
+    if (self.last_pwd_probe) |last| {
+        return last.durationTo(now).toMilliseconds() > pwd_probe_interval_ms;
+    }
+    return true;
+}
+
+/// Probe the foreground process working directory and publish it via
+/// .pwd_change if it differs from the last probed value. Callers must
+/// hold the renderer lock and have verified a probe is due (see
+/// pwdProbeDueLocked).
+pub fn probeAndPublishPwdLocked(self: *Termio, now: std.Io.Timestamp) void {
+    probe_pwd: {
         self.last_pwd_probe = now;
 
         const pid = self.getProcessInfo(.foreground_pid) orelse
