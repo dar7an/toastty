@@ -483,18 +483,25 @@ fn coalesceCallback(
     return .disarm;
 }
 
+const PwdProbeRetryDecision = enum { discard, retry, probe };
+
+/// A trailing timer can fire shortly after a newer reader-side probe.
+/// Keep the pending retry in that case: the shell may have changed cwd
+/// again since that newer probe, without producing any further output.
+fn pwdProbeRetryDecision(pending: bool, reported: bool, due: bool) PwdProbeRetryDecision {
+    if (!pending or reported) return .discard;
+    return if (due) .probe else .retry;
+}
+
 fn pwdProbeCallback(
     cb_: ?*CallbackData,
     _: *xev.Loop,
     _: *xev.Completion,
     r: xev.Timer.RunError!void,
 ) xev.CallbackAction {
-    _ = r catch |err| switch (err) {
-        error.Canceled => {},
-        else => {
-            log.warn("error during pwd probe callback err={}", .{err});
-            return .disarm;
-        },
+    _ = r catch |err| {
+        if (err != error.Canceled) log.warn("error during pwd probe callback err={}", .{err});
+        return .disarm;
     };
 
     const cb = cb_ orelse return .disarm;
@@ -503,15 +510,32 @@ fn pwdProbeCallback(
     io.renderer_state.mutex.lockUncancelable(global.io());
     defer io.renderer_state.mutex.unlock(global.io());
 
-    // Consume the flag before checking the gate so a batch that
-    // skips again during this probe re-flags and re-arms.
-    io.pwd_probe_pending.store(false, .seq_cst);
     const now = std.Io.Timestamp.now(global.io(), .awake);
-    if (io.pwdProbeDueLocked(now)) {
-        io.probeAndPublishPwdLocked(now);
+    switch (pwdProbeRetryDecision(
+        io.pwd_probe_pending.load(.seq_cst),
+        io.terminal.pwd_reported,
+        io.pwdProbeDueLocked(now),
+    )) {
+        .retry => return .rearm,
+        .discard => io.pwd_probe_pending.store(false, .seq_cst),
+        .probe => {
+            io.pwd_probe_pending.store(false, .seq_cst);
+            io.probeAndPublishPwdLocked(now);
+        },
     }
-
     return .disarm;
+}
+
+test "pwd probe trailing retry survives a newer reader probe" {
+    // Probe at 0ms, arm at 100ms, then a reader probe at 550ms and
+    // a new cd at 580ms. The 600ms timer must retry, not drop the cd.
+    try std.testing.expectEqual(PwdProbeRetryDecision.retry, pwdProbeRetryDecision(true, false, false));
+    // Once the newer probe's rate interval expires, publish the final cwd.
+    try std.testing.expectEqual(PwdProbeRetryDecision.probe, pwdProbeRetryDecision(true, false, true));
+    // OSC 7 remains authoritative; idle timers must not begin polling.
+    try std.testing.expectEqual(PwdProbeRetryDecision.discard, pwdProbeRetryDecision(true, true, false));
+    try std.testing.expectEqual(PwdProbeRetryDecision.discard, pwdProbeRetryDecision(true, true, true));
+    try std.testing.expectEqual(PwdProbeRetryDecision.discard, pwdProbeRetryDecision(false, false, true));
 }
 
 fn wakeupCallback(
