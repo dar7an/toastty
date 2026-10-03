@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import GhosttyKit
 import Testing
 @testable import Ghostty
 
@@ -181,10 +182,10 @@ struct TabSidebarModelTests {
         await drainMainQueue()
         #expect(model.directory(for: controllers[0].project) == "/tmp/second")
 
-        // With no live pwd the fixed creation directory is shown.
+        // With no live pwd the last tracked directory is shown.
         surfaces.forEach { $0.pwd = nil }
         await drainMainQueue()
-        #expect(model.directory(for: controllers[0].project) == "/tmp/alpha-dir")
+        #expect(model.directory(for: controllers[0].project) == "/tmp/first")
     }
 
     @Test func projectsOwnTabsAndRememberSelection() async throws {
@@ -423,7 +424,9 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
-        surface.pwd = "/tmp/fixed-dir"
+        // The directory must exist: the spawned surface otherwise falls back
+        // to home and live tracking records the real cwd instead.
+        surface.pwd = "/private/tmp"
         let controller = TerminalController(app, withSurfaceTree: .init())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -454,8 +457,8 @@ struct TabSidebarModelTests {
         #expect(grouped.count == 2)
         let created = try #require(grouped.compactMap { $0.windowController as? TerminalController }
             .first(where: { $0.project.id != controller.project.id }))
-        #expect(created.project.directory == "/tmp/fixed-dir")
-        #expect(created.project.displayName == "fixed-dir")
+        #expect(created.project.directory == "/private/tmp")
+        #expect(created.project.displayName == "tmp")
         #expect(created.usesProjectSidebar)
 
         // Unwind the focused-surface observation before teardown so the live
@@ -624,7 +627,7 @@ struct TabSidebarModelTests {
         #expect(TerminalProject().abbreviatedDirectory == nil)
     }
 
-    @Test func lateDirectorySeedsOnceAndIgnoresCd() async throws {
+    @Test func lateDirectorySeedsThenTracksLiveCwdThroughRename() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
@@ -646,21 +649,194 @@ struct TabSidebarModelTests {
         #expect(controller.project.directory == nil)
         #expect(controller.project.displayName == "Terminal")
 
-        // Late-arriving shell directory initializes the identity once…
+        // A late-arriving shell directory seeds the project…
         surface.pwd = "/tmp/late dir/ünicode"
         await drainMainQueue()
         #expect(controller.project.directory == "/tmp/late dir/ünicode")
         #expect(controller.project.displayName == "ünicode")
 
-        // …and a later cd never changes the stored directory.
+        // …and each `cd` keeps tracking it, name included.
         surface.pwd = "/tmp/elsewhere"
         await drainMainQueue()
-        #expect(controller.project.directory == "/tmp/late dir/ünicode")
-        #expect(controller.project.displayName == "ünicode")
+        let model = try #require(window.tabGroup).tabSidebarModel
+        #expect(controller.project.directory == "/tmp/elsewhere")
+        #expect(controller.project.displayName == "elsewhere")
+        #expect(model.projects.first?.displayName == "elsewhere")
+        #expect(model.directory(for: controller.project) == "/tmp/elsewhere")
+
+        // A manual rename pins only the display name; the directory keeps
+        // tracking the anchor's live cwd so new tabs start there.
+        model.beginRename(projectID: controller.project.id)
+        model.editingDraft = "Custom"
+        model.commitRename()
+        surface.pwd = "/tmp/third"
+        await drainMainQueue()
+        #expect(controller.project.nameOverride == "Custom")
+        #expect(controller.project.directory == "/tmp/third")
+        #expect(controller.project.displayName == "Custom")
+        #expect(model.projects.first?.displayName == "Custom")
+        #expect(model.directory(for: controller.project) == "/tmp/third")
 
         // Unwind the focused-surface observation before teardown so the live
         // surface destroys deterministically instead of racing test exit.
         controller.focusedSurface = nil
+        await drainMainQueue()
+    }
+
+    @Test func projectDirectoryTracksAnchorTabLiveCwd() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        Self.directoryFixtureApp = app
+        let core = try #require(app.app)
+        let alpha = TerminalProject(directory: "/tmp/alpha")
+        let surfaces = [Ghostty.SurfaceView(core), Ghostty.SurfaceView(core)]
+        for surface in surfaces {
+            try await waitForStartupDirectory(on: surface, app: app)
+        }
+        let controllers = [alpha, alpha].enumerated().map { index, project in
+            let controller = TerminalController(app, withSurfaceTree: .init())
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                                  styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            controller.window = window
+            controller.project = project
+            window.contentView = surfaces[index]
+            controller.focusedSurface = surfaces[index]
+            return controller
+        }
+        let windows = controllers.compactMap(\.window)
+        defer {
+            controllers.forEach {
+                $0.focusedSurface = nil
+                $0.window?.contentView = nil
+                $0.window = nil
+            }
+            windows.forEach { $0.close() }
+        }
+        windows[0].addTabbedWindow(windows[1], ordered: .above)
+        windows[0].makeKeyAndOrderFront(nil)
+        let group = try #require(windows[0].tabGroup)
+        let model = group.tabSidebarModel
+        await drainMainQueue()
+
+        // A `cd` in the anchor tab updates the directory on every sibling
+        // controller and re-renders the derived name.
+        model.select(ObjectIdentifier(windows[0]), stealFocus: false)
+        surfaces[0].pwd = "/tmp/moved"
+        await drainMainQueue()
+        for controller in controllers {
+            #expect(controller.project.directory == "/tmp/moved")
+            #expect(controller.project.displayName == "moved")
+        }
+        #expect(model.projects.first?.displayName == "moved")
+        #expect(model.directory(for: controllers[0].project) == "/tmp/moved")
+
+        // A `cd` in a background (non-anchor) tab leaves the project alone.
+        surfaces[1].pwd = "/tmp/other"
+        await drainMainQueue()
+        #expect(controllers[0].project.directory == "/tmp/moved")
+        #expect(model.projects.first?.displayName == "moved")
+
+        // Selecting the background tab makes it the anchor and adopts its
+        // last reported directory without waiting for another report.
+        model.select(ObjectIdentifier(windows[1]), stealFocus: false)
+        await drainMainQueue()
+        #expect(controllers[0].project.directory == "/tmp/other")
+        #expect(controllers[1].project.directory == "/tmp/other")
+        #expect(model.projects.first?.displayName == "other")
+        #expect(model.directory(for: controllers[0].project) == "/tmp/other")
+    }
+
+    @Test func newProjectTabStartsInRememberedDirectory() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let parent = TerminalController(app, withSurfaceTree: .init())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .preferred
+        parent.window = window
+        parent.project = TerminalProject(directory: "/tmp")
+        defer {
+            let grouped = window.tabGroup?.windows ?? [window]
+            grouped.compactMap { $0.windowController as? TerminalController }.forEach { $0.window = nil }
+            grouped.forEach { $0.close() }
+        }
+
+        let tab = try #require(TerminalController.newTab(app, from: window, registerUndo: false))
+        #expect(tab.project.id == parent.project.id)
+        let surface = try #require(tab.focusedSurface)
+        try await waitForStartupDirectory(on: surface, app: app)
+        #expect(surface.pwd == "/tmp")
+
+        tab.focusedSurface = nil
+        await drainMainQueue()
+    }
+
+    @Test func newProjectTabOverridesInheritedTabConfig() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let core = try #require(app.app)
+        let source = Ghostty.SurfaceView(core)
+        try await waitForStartupDirectory(on: source, app: app)
+        // The ghosttyNewTab path embeds the source surface's live pwd into a
+        // `.tab`-context config; the project's directory must still win.
+        var inherited = Ghostty.SurfaceConfiguration(
+            from: ghostty_surface_inherited_config(
+                try #require(source.surface), GHOSTTY_SURFACE_CONTEXT_TAB))
+        inherited.workingDirectory = "/usr"
+        let parent = TerminalController(app, withSurfaceTree: .init())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .preferred
+        parent.window = window
+        parent.project = TerminalProject(directory: "/tmp")
+        defer {
+            let grouped = window.tabGroup?.windows ?? [window]
+            grouped.compactMap { $0.windowController as? TerminalController }.forEach { $0.window = nil }
+            grouped.forEach { $0.close() }
+        }
+
+        let tab = try #require(TerminalController.newTab(
+            app, from: window, withBaseConfig: inherited, registerUndo: false))
+        let surface = try #require(tab.focusedSurface)
+        try await waitForStartupDirectory(on: surface, app: app)
+        #expect(surface.pwd == "/tmp")
+
+        tab.focusedSurface = nil
+        await drainMainQueue()
+    }
+
+    @Test func newProjectTabKeepsExplicitWorkingDirectory() async throws {
+        let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /bin/cat")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let parent = TerminalController(app, withSurfaceTree: .init())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .preferred
+        parent.window = window
+        parent.project = TerminalProject(directory: "/tmp")
+        defer {
+            let grouped = window.tabGroup?.windows ?? [window]
+            grouped.compactMap { $0.windowController as? TerminalController }.forEach { $0.window = nil }
+            grouped.forEach { $0.close() }
+        }
+
+        // A window-context config with an explicit directory (dock drop,
+        // services, script records) is not an inherited-pwd config and is
+        // left alone.
+        var explicit = Ghostty.SurfaceConfiguration()
+        explicit.workingDirectory = "/usr"
+        let tab = try #require(TerminalController.newTab(
+            app, from: window, withBaseConfig: explicit, registerUndo: false))
+        let surface = try #require(tab.focusedSurface)
+        try await waitForStartupDirectory(on: surface, app: app)
+        #expect(surface.pwd == "/usr")
+
+        tab.focusedSurface = nil
         await drainMainQueue()
     }
 
@@ -669,6 +845,7 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
+        try await waitForStartupDirectory(on: surface, app: app)
         surface.pwd = "/tmp/remembered"
         // Legacy shape: preserved name, no directory yet.
         let legacy = TerminalProject(name: "Legacy")
@@ -702,8 +879,11 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let first = Ghostty.SurfaceView(core)
-        first.pwd = "/tmp/aaa"
         let second = Ghostty.SurfaceView(core)
+        for surface in [first, second] {
+            try await waitForStartupDirectory(on: surface, app: app)
+        }
+        first.pwd = "/tmp/aaa"
         second.pwd = "/tmp/bbb"
         let c0 = TerminalController(app, withSurfaceTree: .init())
         let c1 = TerminalController(app, withSurfaceTree: .init())

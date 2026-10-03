@@ -6,9 +6,11 @@ import SwiftUI
 /// Stable identity shared by the tabs that belong to a directory project.
 ///
 /// A project is identified by `id`, so two projects may share the same
-/// directory or display name. `directory` is the fixed directory the project
-/// was created from — changing directories inside a tab never updates it.
-/// `nameOverride` is a user-supplied rename; nil means the name is derived.
+/// directory or display name. `directory` is the project's remembered working
+/// directory: it tracks the live cwd of the tab the project would restore to
+/// (see `TabSidebarModel.restoreTargetRow`), so new tabs start in it and the
+/// derived name follows it. A manual rename (`nameOverride`) pins only the
+/// name; the directory keeps tracking so new tabs start in the current cwd.
 struct TerminalProject: Codable, Equatable, Identifiable {
     var id = UUID()
     var directory: String?
@@ -97,8 +99,9 @@ struct TerminalProject: Codable, Equatable, Identifiable {
         return copy
     }
 
-    /// Remember the project's directory once without changing its display
-    /// name. Later `cd`s must never call this: the directory is identity.
+    /// Fill a still-unknown directory from a restored or bootstrap pwd
+    /// without changing the display name. Ongoing `cd` tracking does not go
+    /// through here; it lives in `TabSidebarModel.trackProjectDirectory`.
     mutating func backfillDirectory(from pwd: String?) {
         guard directory == nil, let pwd, !pwd.isEmpty else { return }
         directory = pwd
@@ -258,6 +261,9 @@ final class TabSidebarModel: ObservableObject {
         var project: TerminalProject
         var title: String = ""
         var pwd: String?
+        /// `pwd` before home-directory abbreviation, kept so project
+        /// directory tracking never persists a `~` path.
+        var rawPwd: String?
         var tabColor: TerminalTabColor = .none
     }
 
@@ -483,10 +489,10 @@ final class TabSidebarModel: ObservableObject {
     }
 
     /// Abbreviated directory for a project: the live pwd of its selected
-    /// tab's focused surface, else any tab's live pwd, else the fixed
-    /// creation directory for projects whose shells have not reported yet.
-    /// The stored `project.directory` stays the identity anchor — this only
-    /// chooses which path the row displays.
+    /// tab's focused surface, else any tab's live pwd, else the remembered
+    /// project directory for shells that have not reported yet. This only
+    /// chooses which path the row displays; the same anchor's raw pwd is what
+    /// `trackProjectDirectory` stores back on the project.
     func directory(for project: TerminalProject) -> String? {
         let tabs = rows.filter { $0.project.id == project.id }
         // Resolve the tab the project would restore to, matching
@@ -695,9 +701,9 @@ final class TabSidebarModel: ObservableObject {
         }
 
         // Restored windows from before project directories carry no directory.
-        // Remember each project's directory once from its remembered selected
-        // tab without changing the (possibly legacy) display name. Later `cd`s
-        // never update it: the directory is identity, not live state.
+        // Fill each project's directory once from its remembered selected
+        // tab without changing the (possibly legacy) display name. Ongoing
+        // `cd` tracking is handled by updatePwd/trackProjectDirectory.
         var backfilledProjects = Set<UUID>()
         for controller in controllers where backfilledProjects.insert(controller.project.id).inserted {
             guard controller.project.directory == nil else { continue }
@@ -720,6 +726,7 @@ final class TabSidebarModel: ObservableObject {
                 project: (window.windowController as? TerminalController)?.project ?? TerminalProject(),
                 title: window.title,
                 pwd: pwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
+                rawPwd: pwd,
                 tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
         }
 
@@ -791,6 +798,32 @@ final class TabSidebarModel: ObservableObject {
     private func updatePwd(_ pwd: String?, for window: NSWindow) {
         guard let index = rows.firstIndex(where: { $0.window == window }) else { return }
         rows[index].pwd = pwd.map { ($0 as NSString).abbreviatingWithTildeInPath }
+        rows[index].rawPwd = pwd
+        trackProjectDirectory(pwd: pwd, from: window)
+    }
+
+    /// Records a live shell cwd as the project's remembered directory when
+    /// the reporting tab is the project's anchor — the same row
+    /// `restoreTargetRow` resolves for selection, captions, and restore — so
+    /// the stored directory, the derived name, and the caption can never
+    /// disagree. A manual rename (`nameOverride`) pins only the displayed
+    /// name — the directory keeps tracking so new tabs start in the
+    /// current cwd.
+    ///
+    /// Multi-tab/split rule: only the anchor tab's focused surface reports
+    /// here, so a background tab's `cd` cannot move the remembered directory.
+    /// It updates when selection changes (see `syncSelection`) or on the new
+    /// anchor's next pwd report — with shell-integration OSC 7 that is the
+    /// next prompt. Writes go through `updateProject`, so every sibling
+    /// controller and row snapshot follows at once.
+    func trackProjectDirectory(pwd: String?, from window: NSWindow) {
+        guard let pwd, TerminalController.isPlausibleProjectDirectory(pwd),
+              let controller = window.windowController as? TerminalController else { return }
+        let projectID = controller.project.id
+        if let anchor = (restoreTargetRow(for: projectID)
+            ?? rows.first(where: { $0.project.id == projectID }))?.window,
+           anchor != window { return }
+        updateProject(projectID) { $0.directory = pwd }
     }
 
     private func syncSelection() {
@@ -806,6 +839,10 @@ final class TabSidebarModel: ObservableObject {
                     controller.project.selectedTabID = selected.projectTabID
                 }
             }
+            // The selected tab is the project's anchor: adopt its last
+            // reported directory now instead of waiting for its next pwd
+            // report, which may never come for shells without OSC 7.
+            trackProjectDirectory(pwd: row.rawPwd, from: row.window)
         }
         suppressNativeTabBar()
     }

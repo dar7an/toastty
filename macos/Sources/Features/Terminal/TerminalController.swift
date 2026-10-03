@@ -40,8 +40,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// A project owns its terminal tabs independently of AppKit's window transport.
-    /// A fresh project starts without directory identity ("Terminal") until it
-    /// is seeded from the initial surface configuration or shell.
+    /// A fresh project starts without a directory ("Terminal") until it is
+    /// seeded from the initial surface configuration or a shell report; the
+    /// directory then tracks the live cwd of the project's anchor tab.
     var project = TerminalProject() {
         didSet { if isWindowLoaded { window?.invalidateRestorableState() } }
     }
@@ -98,8 +99,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// they update the source tree and close its window as one transaction.
     var isLayoutTransferInProgress = false
 
-    /// One-time project directory seeding from the shell-reported working
-    /// directory (see seedProjectDirectoryIfNeeded).
+    /// Ongoing project directory tracking from the shell-reported working
+    /// directory (see trackProjectDirectory).
     private var projectDirectoryCancellable: AnyCancellable?
 
     /// Creates a terminal controller and restores its optional project metadata.
@@ -128,7 +129,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if let sidebarState { self.sidebarState = sidebarState }
 
         // A fresh project remembers the directory it was created from so the
-        // sidebar can name it. Explicitly passed projects keep their identity.
+        // sidebar can name it and later tabs can start there. Explicitly
+        // passed projects keep their existing directory.
         if self.project.directory == nil, self.project.nameOverride == nil,
            let workingDirectory = base?.workingDirectory, !workingDirectory.isEmpty {
             self.project.directory = workingDirectory
@@ -136,8 +138,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
 
-        // The shell reports its working directory asynchronously; remember it
-        // once as a fresh project's identity so the sidebar can name it.
+        // The shell reports its working directory asynchronously; track it so
+        // the project's remembered directory follows the anchor tab's live cwd.
         // This mirrors the sidebar model's focused-surface observation.
         projectDirectoryCancellable = $focusedSurface
             .map { surface -> AnyPublisher<String?, Never> in
@@ -148,7 +150,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             }
             .switchToLatest()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.seedProjectDirectoryIfNeeded() }
+            .sink { [weak self] _ in self?.trackProjectDirectory() }
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -553,10 +555,31 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return nil
         }
 
+        // A tab that joins the parent's existing project starts in the
+        // project's remembered working directory instead of the source
+        // surface's live pwd. The override applies to auto-derived configs —
+        // a nil config (menu/keyboard new tab) and the `.tab`-context config
+        // the ghosttyNewTab notification builds from the inherited live pwd —
+        // and to configs that carry no directory at all. Explicit
+        // directories (dock drops, services, script records) and `inProject:`
+        // callers — `newProject` supplies its own — are left alone.
+        var resolvedBaseConfig = baseConfig
+        if project == nil,
+           let directory = parentController.project.directory,
+           Self.isPlausibleProjectDirectory(directory),
+           baseConfig.map({
+               $0.context == GHOSTTY_SURFACE_CONTEXT_TAB
+                   || $0.workingDirectory?.isEmpty != false
+           }) ?? true {
+            var config = baseConfig ?? Ghostty.SurfaceConfiguration()
+            config.workingDirectory = directory
+            resolvedBaseConfig = config
+        }
+
         // Create a new window and add it to the parent. New tabs inherit the
         // parent group's sidebar state before window loading.
         let controller = TerminalController(
-            ghostty, withBaseConfig: baseConfig, withSurfaceTree: tree,
+            ghostty, withBaseConfig: resolvedBaseConfig, withSurfaceTree: tree,
             project: project ?? parentController.project,
             usesProjectSidebar: parentController.usesProjectSidebar,
             sidebarState: parent.tabGroup?.tabSidebarModel.sidebarState
@@ -675,7 +698,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newTab(
                         ghostty,
                         from: parent,
-                        withBaseConfig: baseConfig,
+                        withBaseConfig: resolvedBaseConfig,
                         inProject: createdProject)
                 }
             }
@@ -1261,9 +1284,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
-        // Seed a fresh project's directory from the initial terminal now that
+        // Track the project's directory from the initial terminal now that
         // the first surface exists; later shell updates arrive via observation.
-        seedProjectDirectoryIfNeeded()
+        trackProjectDirectory()
 
         // Initialize our content view to the SwiftUI root
         let container: TerminalViewContainer
@@ -1539,22 +1562,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return true
     }
 
-    /// Remember a fresh project's directory once from its shell, without
-    /// overwriting an established identity or a renamed project. Later `cd`s
-    /// never change the stored directory; it is identity, not live state.
-    private func seedProjectDirectoryIfNeeded() {
-        guard project.directory == nil, project.nameOverride == nil else { return }
+    /// Track the project's remembered working directory from this tab's live
+    /// shell pwd. When the window already belongs to a sidebar model, the
+    /// model decides whether this tab is the project's anchor (the tab the
+    /// project would restore to) and propagates the write to every sibling
+    /// controller; before the window joins one, a plausible report seeds the
+    /// value directly. A manual rename (`nameOverride`) pins only the
+    /// displayed name; the directory keeps tracking so new tabs start in
+    /// the current cwd.
+    private func trackProjectDirectory() {
         guard let pwd = focusedSurface?.pwd, Self.isPlausibleProjectDirectory(pwd) else { return }
-        project.directory = pwd
-        window?.projectSidebarModel.refresh()
+        if let window {
+            window.projectSidebarModel.trackProjectDirectory(pwd: pwd, from: window)
+        } else if project.directory != pwd {
+            project.directory = pwd
+        }
     }
 
     /// Create a new project seeded from the active terminal's directory.
     ///
-    /// The project directory is identity, not inheritance: the new project's
-    /// first tab starts in it, while later tabs keep the existing
-    /// working-directory inheritance. Projects may share directories; they
-    /// are separated by UUID.
+    /// The new project's first tab starts in its directory; later tabs start
+    /// in the project's remembered directory as it tracks the anchor tab's
+    /// live cwd. Projects may share directories; they are separated by UUID.
     @objc func newProject(_ sender: Any?) {
         guard usesProjectSidebar, let window else { return }
 
