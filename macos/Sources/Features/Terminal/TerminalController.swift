@@ -1567,10 +1567,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// model decides whether this tab is the project's anchor (the tab the
     /// project would restore to) and propagates the write to every sibling
     /// controller; before the window joins one, a plausible report seeds the
-    /// value directly. A manual rename (`nameOverride`) pins the directory
-    /// along with the name.
+    /// value directly. A manual rename (`nameOverride`) pins only the
+    /// displayed name; the directory keeps tracking so new tabs start in
+    /// the current cwd.
     private func trackProjectDirectory() {
-        guard project.nameOverride == nil else { return }
         guard let pwd = focusedSurface?.pwd, Self.isPlausibleProjectDirectory(pwd) else { return }
         if let window {
             window.projectSidebarModel.trackProjectDirectory(pwd: pwd, from: window)

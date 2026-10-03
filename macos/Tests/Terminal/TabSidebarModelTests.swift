@@ -182,10 +182,10 @@ struct TabSidebarModelTests {
         await drainMainQueue()
         #expect(model.directory(for: controllers[0].project) == "/tmp/second")
 
-        // With no live pwd the fixed creation directory is shown.
+        // With no live pwd the last tracked directory is shown.
         surfaces.forEach { $0.pwd = nil }
         await drainMainQueue()
-        #expect(model.directory(for: controllers[0].project) == "/tmp/alpha-dir")
+        #expect(model.directory(for: controllers[0].project) == "/tmp/first")
     }
 
     @Test func projectsOwnTabsAndRememberSelection() async throws {
@@ -627,7 +627,7 @@ struct TabSidebarModelTests {
         #expect(TerminalProject().abbreviatedDirectory == nil)
     }
 
-    @Test func lateDirectorySeedsThenTracksLiveCwdUntilRenamed() async throws {
+    @Test func lateDirectorySeedsThenTracksLiveCwdThroughRename() async throws {
         let config = try TemporaryConfig("macos-tabs-sidebar = true\nshell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
@@ -664,15 +664,15 @@ struct TabSidebarModelTests {
         #expect(model.projects.first?.displayName == "elsewhere")
         #expect(model.directory(for: controller.project) == "/tmp/elsewhere")
 
-        // A manual rename pins the name and the last tracked directory;
-        // later `cd`s still update the row caption but not the project.
+        // A manual rename pins only the display name; the directory keeps
+        // tracking the anchor's live cwd so new tabs start there.
         model.beginRename(projectID: controller.project.id)
         model.editingDraft = "Custom"
         model.commitRename()
         surface.pwd = "/tmp/third"
         await drainMainQueue()
         #expect(controller.project.nameOverride == "Custom")
-        #expect(controller.project.directory == "/tmp/elsewhere")
+        #expect(controller.project.directory == "/tmp/third")
         #expect(controller.project.displayName == "Custom")
         #expect(model.projects.first?.displayName == "Custom")
         #expect(model.directory(for: controller.project) == "/tmp/third")
@@ -845,6 +845,7 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let surface = Ghostty.SurfaceView(core)
+        try await waitForStartupDirectory(on: surface, app: app)
         surface.pwd = "/tmp/remembered"
         // Legacy shape: preserved name, no directory yet.
         let legacy = TerminalProject(name: "Legacy")
@@ -878,8 +879,11 @@ struct TabSidebarModelTests {
         let app = Ghostty.App(configPath: config.temporaryFile.path)
         let core = try #require(app.app)
         let first = Ghostty.SurfaceView(core)
-        first.pwd = "/tmp/aaa"
         let second = Ghostty.SurfaceView(core)
+        for surface in [first, second] {
+            try await waitForStartupDirectory(on: surface, app: app)
+        }
+        first.pwd = "/tmp/aaa"
         second.pwd = "/tmp/bbb"
         let c0 = TerminalController(app, withSurfaceTree: .init())
         let c1 = TerminalController(app, withSurfaceTree: .init())

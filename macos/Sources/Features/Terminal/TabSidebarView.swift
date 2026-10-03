@@ -9,8 +9,8 @@ import SwiftUI
 /// directory or display name. `directory` is the project's remembered working
 /// directory: it tracks the live cwd of the tab the project would restore to
 /// (see `TabSidebarModel.restoreTargetRow`), so new tabs start in it and the
-/// derived name follows it. A manual rename (`nameOverride`) pins both the
-/// name and the last-tracked directory.
+/// derived name follows it. A manual rename (`nameOverride`) pins only the
+/// name; the directory keeps tracking so new tabs start in the current cwd.
 struct TerminalProject: Codable, Equatable, Identifiable {
     var id = UUID()
     var directory: String?
@@ -806,8 +806,9 @@ final class TabSidebarModel: ObservableObject {
     /// the reporting tab is the project's anchor — the same row
     /// `restoreTargetRow` resolves for selection, captions, and restore — so
     /// the stored directory, the derived name, and the caption can never
-    /// disagree. A manual rename (`nameOverride`) pins the last tracked
-    /// directory together with the name.
+    /// disagree. A manual rename (`nameOverride`) pins only the displayed
+    /// name — the directory keeps tracking so new tabs start in the
+    /// current cwd.
     ///
     /// Multi-tab/split rule: only the anchor tab's focused surface reports
     /// here, so a background tab's `cd` cannot move the remembered directory.
@@ -817,8 +818,7 @@ final class TabSidebarModel: ObservableObject {
     /// controller and row snapshot follows at once.
     func trackProjectDirectory(pwd: String?, from window: NSWindow) {
         guard let pwd, TerminalController.isPlausibleProjectDirectory(pwd),
-              let controller = window.windowController as? TerminalController,
-              controller.project.nameOverride == nil else { return }
+              let controller = window.windowController as? TerminalController else { return }
         let projectID = controller.project.id
         if let anchor = (restoreTargetRow(for: projectID)
             ?? rows.first(where: { $0.project.id == projectID }))?.window,
