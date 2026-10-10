@@ -123,6 +123,17 @@ transition state, restoration, clipboard/URL handling and synthetic PTY cwd
 checks. Light/dark tab and project-drag rendering attachments were inspected.
 These fixtures are not interactive desktop or VoiceOver acceptance.
 
+The initial macOS 26 CI run for [PR #23](https://github.com/dar7an/toastty/pull/23)
+passed the notification-delivery check but failed the new test's immediate
+controller-deallocation assertion (406 passed, one failed, one skipped).
+The publication follow-up separates delivery from lifetime testing, drains
+queued appearance work without fixed sleeps, and allows a bounded two-second
+window for AppKit's deferred/autoreleased ownership to clear. An actual observer
+retain cycle still fails the lifetime test. The full local native rerun passed
+**408 tests, zero failures, one skipped**. This follow-up changes tests and
+this report only; production code and benchmark results are unchanged.
+The PR checks record the remote rerun result.
+
 Both Debug and `scripts/build.sh ReleaseLocal` app builds passed. ReleaseLocal
 is universal arm64/x86_64, ad hoc signed with hardened runtime, with its own
 `com.dar7an.toastty.local` identity. Deep/strict signature verification passed

@@ -62,14 +62,33 @@ struct TerminalViewContainerTests {
     @Test func displayAccessibilityChangesRefreshExistingControllers() async throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
-        var controller: AccessibilityAppearanceTestController? = .init(app, withSurfaceTree: .init())
-        weak var releasedController = controller
-        let before = controller?.appearanceUpdates ?? 0
+        let controller = AccessibilityAppearanceTestController(app, withSurfaceTree: .init())
+        let before = controller.appearanceUpdates
         NSWorkspace.shared.notificationCenter.post(
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        try await Task.sleep(nanoseconds: 100_000_000)
-        #expect(controller?.appearanceUpdates == before + 1)
-        controller = nil
+        await drainMainQueue()
+        #expect(controller.appearanceUpdates == before + 1)
+    }
+
+    @Test func accessibilityObserverDoesNotRetainController() async throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        weak var releasedController: AccessibilityAppearanceTestController?
+        // Drain autoreleased ownership separately from the delivery test's
+        // assertion temporaries, including a notification queued at release.
+        autoreleasepool {
+            let controller = AccessibilityAppearanceTestController(app, withSurfaceTree: .init())
+            releasedController = controller
+            NSWorkspace.shared.notificationCenter.post(
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        }
+        // AppKit can also defer cleanup to the run loop. A real observer
+        // retain cycle still fails this bounded wait.
+        for _ in 0..<100 {
+            let released = autoreleasepool { releasedController == nil }
+            if released { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
         #expect(releasedController == nil)
     }
 
@@ -106,7 +125,7 @@ struct TerminalViewContainerTests {
         window.transparencyAllowed = false
         window.syncAppearance(surfaceConfig)
         container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await drainMainQueue()
         #expect(window.isOpaque)
         #expect(window.backgroundColor.alphaComponent == 1)
         #expect(container.glassEffectView == nil)
@@ -118,6 +137,12 @@ struct TerminalViewContainerTests {
         #expect(!window.isOpaque)
         #expect(container.glassEffectView != nil)
         #expect(container.subviews.first === container.glassEffectView)
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     @Test func defaultSizeTracksSidebarWidth() {
