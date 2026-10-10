@@ -146,7 +146,9 @@ class TerminalViewContainer: NSView {
     }
 
     func ghosttyConfigDidChange(_ config: Ghostty.Config, preferredBackgroundColor: NSColor?) {
-        let newValue = DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
+        let newValue = (window as? TerminalWindow)?.allowsBackgroundTransparency == false
+            ? nil
+            : DerivedConfig(config: config, preferredBackgroundColor: preferredBackgroundColor, cornerRadius: windowCornerRadius)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
 
@@ -155,7 +157,7 @@ class TerminalViewContainer: NSView {
         if glassEffectView == nil {
             updateGlassEffectIfNeeded()
         } else {
-            DispatchQueue.main.async(execute: updateGlassEffectIfNeeded)
+            DispatchQueue.main.async { [weak self] in self?.updateGlassEffectIfNeeded() }
         }
     }
 }
@@ -175,6 +177,10 @@ extension BaseTerminalController {
 #if compiler(>=6.2)
 @available(macOS 26.0, *)
 private class TerminalGlassView: NSView, ObservableObject {
+    // Decorative content must never become a responder or an accessibility
+    // element, even when AppKit rearranges the project split hierarchy.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
     /// We use this to apply glass effect to background colors
     ///
     struct GlassBackground: View {
@@ -211,6 +217,7 @@ private class TerminalGlassView: NSView, ObservableObject {
         self.glassViewModel = viewModel
         super.init(frame: .zero)
 
+        setAccessibilityHidden(true)
         translatesAutoresizingMaskIntoConstraints = false
 
         // Glass effect view fills this view.
@@ -266,7 +273,9 @@ extension TerminalViewContainer {
             return nil
         }
         let effectView = TerminalGlassView(topOffset: -themeFrameView.safeAreaInsets.top)
-        addSubview(effectView, positioned: .below, relativeTo: terminalView)
+        // Project mode reparents terminalView. Insert below all current
+        // children so both terminal and project content stay above the glass.
+        addSubview(effectView, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             effectView.topAnchor.constraint(equalTo: topAnchor),
             effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -280,7 +289,8 @@ extension TerminalViewContainer {
 
     private func updateGlassEffectIfNeeded() {
 #if compiler(>=6.2)
-        guard #available(macOS 26.0, *), let derivedConfig else {
+        guard #available(macOS 26.0, *), let derivedConfig,
+              (window as? TerminalWindow)?.allowsBackgroundTransparency != false else {
             glassEffectView?.removeFromSuperview()
             glassEffectView = nil
             return

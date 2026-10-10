@@ -83,6 +83,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// AppKit can settle tab/window state first. Close actions must cancel it to avoid
     /// re-showing a tab/window that was already closed.
     private var pendingInitialPresentation: DispatchWorkItem?
+    private var accessibilityDisplayObserver: AnyCancellable?
 
     /// This is set to false by init if the window managed by this controller should not be restorable.
     /// For example, terminals executing custom scripts are not restorable.
@@ -222,6 +223,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: .ghosttyCloseWindow,
             object: nil
         )
+        accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.publisher(
+            for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncAppearance() }
     }
 
     required init?(coder: NSCoder) {

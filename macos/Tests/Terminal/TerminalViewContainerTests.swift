@@ -20,6 +20,17 @@ class MockTerminalViewContainer: TerminalViewContainer {
     }
 }
 
+private class BackgroundPolicyTestWindow: TerminalWindow {
+    var transparencyAllowed = true
+    override var allowsBackgroundTransparency: Bool { transparencyAllowed }
+    override var isVisible: Bool { true }
+}
+
+private class AccessibilityAppearanceTestController: TerminalController {
+    var appearanceUpdates = 0
+    override func syncAppearance() { appearanceUpdates += 1 }
+}
+
 class MockConfig: Ghostty.Config {
     internal init(backgroundBlur: Ghostty.Config.BackgroundBlur, backgroundColor: Color, backgroundOpacity: Double) {
         self._backgroundBlur = backgroundBlur
@@ -48,6 +59,67 @@ class MockConfig: Ghostty.Config {
 @MainActor
 @Suite(.serialized)
 struct TerminalViewContainerTests {
+    @Test func displayAccessibilityChangesRefreshExistingControllers() async throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        var controller: AccessibilityAppearanceTestController? = .init(app, withSurfaceTree: .init())
+        weak var releasedController = controller
+        let before = controller?.appearanceUpdates ?? 0
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(controller?.appearanceUpdates == before + 1)
+        controller = nil
+        #expect(releasedController == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func glassTracksOpacityAndStaysBehindContent(projectMode: Bool) async throws {
+        guard #available(macOS 26.0, *) else { return }
+        let config = try TemporaryConfig("background-blur = macos-glass-regular\nbackground-opacity = 0.5\n" +
+            "shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let controller = TerminalController(app, withSurfaceTree: .init(), usesProjectSidebar: projectMode)
+        let container = MockTerminalViewContainer { Color.clear.frame(width: 300, height: 200) }
+        if projectMode {
+            container.embedProjectSplitViewController(ProjectSplitViewController(
+                controller: controller, content: AnyView(Color.clear.frame(width: 300, height: 200))))
+        }
+        let window = BackgroundPolicyTestWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+                                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.close() }
+        let surfaceConfig = Ghostty.SurfaceView.DerivedConfig(config)
+
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        let glass = try #require(container.glassEffectView)
+        container.layoutSubtreeIfNeeded()
+        #expect(!window.isOpaque)
+        #expect(container.subviews.first === glass)
+        #expect(glass.hitTest(NSPoint(x: 20, y: 20)) == nil)
+        #expect(glass.isAccessibilityHidden())
+
+        // Exercise the same unchanged config across an accessibility,
+        // fullscreen, or explicit opaque-policy transition.
+        window.transparencyAllowed = false
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(window.isOpaque)
+        #expect(window.backgroundColor.alphaComponent == 1)
+        #expect(container.glassEffectView == nil)
+        #expect(glass.superview == nil)
+
+        window.transparencyAllowed = true
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        #expect(!window.isOpaque)
+        #expect(container.glassEffectView != nil)
+        #expect(container.subviews.first === container.glassEffectView)
+    }
+
     @Test func defaultSizeTracksSidebarWidth() {
         let view = TerminalViewContainer { Color.clear.frame(width: 10, height: 10) }
         view.initialContentSize = NSSize(width: 800, height: 480)

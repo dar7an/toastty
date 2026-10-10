@@ -92,13 +92,13 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
             // For glass background styles, use a transparent titlebar to let the glass effect show through
             // Only apply this for transparent and tabs titlebar styles
-            let isGlassStyle = derivedConfig.backgroundBlur.isGlassStyle
+            let isGlassStyle = derivedConfig.backgroundBlur.isGlassStyle && allowsBackgroundTransparency
             let isTransparentTitlebar = derivedConfig.macosTitlebarStyle == .transparent ||
             derivedConfig.macosTitlebarStyle == .tabs
 
             titlebarView.layer?.backgroundColor = (isGlassStyle && isTransparentTitlebar)
                 ? NSColor.clear.cgColor
-                : preferredBackgroundColor?.cgColor
+                : (allowsBackgroundTransparency ? preferredBackgroundColor : backgroundColor)?.cgColor
         }
 
         // In all cases, we have to hide the background view since this has multiple subviews
@@ -112,7 +112,8 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
         // Setup the titlebar background color to match ours
         titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = preferredBackgroundColor?.cgColor
+        titlebarContainer.layer?.backgroundColor =
+            (allowsBackgroundTransparency ? preferredBackgroundColor : backgroundColor)?.cgColor
 
         // See the docs for the function that sets this to true on why
         effectViewIsHidden = false
