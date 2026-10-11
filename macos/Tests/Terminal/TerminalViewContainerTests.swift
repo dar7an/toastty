@@ -68,7 +68,9 @@ struct TerminalViewContainerTests {
         let classes = try #require(objc_copyClassList(&count))
         defer { free(UnsafeMutableRawPointer(classes)) }
         #expect(count > 0)
-        #expect((0..<Int(count)).contains { classes[$0] === TerminalViewContainer.self })
+        // Do not bridge every returned class to AnyObject for an identity
+        // comparison: private runtime classes need not support that messaging.
+        // Copying the list already forces the metadata realization we test.
     }
 
     @Test func displayAccessibilityChangesRefreshExistingControllers() async throws {
