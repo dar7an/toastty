@@ -5,6 +5,7 @@
 //  Created by Lukas on 26.02.2026.
 //
 
+import ObjectiveC
 import SwiftUI
 import Testing
 @testable import Ghostty
@@ -18,6 +19,17 @@ class MockTerminalViewContainer: TerminalViewContainer {
     override var windowCornerRadius: CGFloat? {
         _windowCornerRadius
     }
+}
+
+private class BackgroundPolicyTestWindow: TerminalWindow {
+    var transparencyAllowed = true
+    override var allowsBackgroundTransparency: Bool { transparencyAllowed }
+    override var isVisible: Bool { true }
+}
+
+private class AccessibilityAppearanceTestController: TerminalController {
+    var appearanceUpdates = 0
+    override func syncAppearance() { appearanceUpdates += 1 }
 }
 
 class MockConfig: Ghostty.Config {
@@ -48,6 +60,105 @@ class MockConfig: Ghostty.Config {
 @MainActor
 @Suite(.serialized)
 struct TerminalViewContainerTests {
+    @Test func runtimeClassDiscoverySupportsOlderMacOS() throws {
+        // XCTest and other Objective-C clients enumerate classes without
+        // constructing views. Availability annotations alone must not leave
+        // a stored Glass value that requires macOS 26 metadata at this point.
+        var count: UInt32 = 0
+        let classes = try #require(objc_copyClassList(&count))
+        defer { free(UnsafeMutableRawPointer(classes)) }
+        #expect(count > 0)
+        // Do not bridge every returned class to AnyObject for an identity
+        // comparison: private runtime classes need not support that messaging.
+        // Copying the list already forces the metadata realization we test.
+    }
+
+    @Test func displayAccessibilityChangesRefreshExistingControllers() async throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let controller = AccessibilityAppearanceTestController(app, withSurfaceTree: .init())
+        let before = controller.appearanceUpdates
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        await drainMainQueue()
+        #expect(controller.appearanceUpdates == before + 1)
+    }
+
+    @Test func accessibilityObserverDoesNotRetainController() async throws {
+        let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        weak var releasedController: AccessibilityAppearanceTestController?
+        // Drain autoreleased ownership separately from the delivery test's
+        // assertion temporaries, including a notification queued at release.
+        autoreleasepool {
+            let controller = AccessibilityAppearanceTestController(app, withSurfaceTree: .init())
+            releasedController = controller
+            NSWorkspace.shared.notificationCenter.post(
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        }
+        // AppKit can also defer cleanup to the run loop. A real observer
+        // retain cycle still fails this bounded wait.
+        for _ in 0..<100 {
+            let released = autoreleasepool { releasedController == nil }
+            if released { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(releasedController == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func glassTracksOpacityAndStaysBehindContent(projectMode: Bool) async throws {
+        guard #available(macOS 26.0, *) else { return }
+        let config = try TemporaryConfig("background-blur = macos-glass-regular\nbackground-opacity = 0.5\n" +
+            "shell-integration = none\ncommand = /usr/bin/true")
+        let app = Ghostty.App(configPath: config.temporaryFile.path)
+        let controller = TerminalController(app, withSurfaceTree: .init(), usesProjectSidebar: projectMode)
+        let container = MockTerminalViewContainer { Color.clear.frame(width: 300, height: 200) }
+        if projectMode {
+            container.embedProjectSplitViewController(ProjectSplitViewController(
+                controller: controller, content: AnyView(Color.clear.frame(width: 300, height: 200))))
+        }
+        let window = BackgroundPolicyTestWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+                                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.close() }
+        let surfaceConfig = Ghostty.SurfaceView.DerivedConfig(config)
+
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        let glass = try #require(container.glassEffectView)
+        container.layoutSubtreeIfNeeded()
+        #expect(!window.isOpaque)
+        #expect(container.subviews.first === glass)
+        #expect(glass.hitTest(NSPoint(x: 20, y: 20)) == nil)
+        #expect(glass.isAccessibilityHidden())
+
+        // Exercise the same unchanged config across an accessibility,
+        // fullscreen, or explicit opaque-policy transition.
+        window.transparencyAllowed = false
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        await drainMainQueue()
+        #expect(window.isOpaque)
+        #expect(window.backgroundColor.alphaComponent == 1)
+        #expect(container.glassEffectView == nil)
+        #expect(glass.superview == nil)
+
+        window.transparencyAllowed = true
+        window.syncAppearance(surfaceConfig)
+        container.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
+        #expect(!window.isOpaque)
+        #expect(container.glassEffectView != nil)
+        #expect(container.subviews.first === container.glassEffectView)
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     @Test func defaultSizeTracksSidebarWidth() {
         let view = TerminalViewContainer { Color.clear.frame(width: 10, height: 10) }
         view.initialContentSize = NSSize(width: 800, height: 480)

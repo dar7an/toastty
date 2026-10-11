@@ -57,8 +57,14 @@ class TerminalWindow: NSWindow {
         true
     }
 
-    /// Glass effect view for liquid glass background when transparency is enabled
-    private var glassEffectView: NSView?
+    /// One policy for the window backing and its decorative glass layer.
+    /// Read accessibility settings when applying appearance so changes take
+    /// effect without rewriting the user's terminal configuration.
+    var allowsBackgroundTransparency: Bool {
+        !styleMask.contains(.fullScreen)
+            && terminalController?.isBackgroundOpaque != true
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
 
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
@@ -670,9 +676,7 @@ class TerminalWindow: NSWindow {
         // becomes gray and widgets show through.
         //
         // Also check if the user has overridden transparency to be fully opaque.
-        let forceOpaque = terminalController?.isBackgroundOpaque ?? false
-        if !styleMask.contains(.fullScreen) &&
-            !forceOpaque &&
+        if allowsBackgroundTransparency &&
             (surfaceConfig.backgroundOpacity < 1 || surfaceConfig.backgroundBlur.isGlassStyle) {
             isOpaque = false
 

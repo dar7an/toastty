@@ -2128,6 +2128,13 @@ pub inline fn resize(
     // state is correct.
     self.cursorReload();
 
+    // If resize moved a cursor with pending wrap away from the right edge,
+    // advance to the next cell instead of wrapping on the next print.
+    if (self.cursor.pending_wrap and self.cursor.x != opts.cols - 1) {
+        self.cursor.pending_wrap = false;
+        self.cursorRight(1);
+    }
+
     // Clear any redrawable prompt after the fallible resize but before
     // restoring the cursor style and hyperlink, so cleared cells retain the
     // same default styling they had with the previous ordering.
@@ -2652,6 +2659,58 @@ pub fn appendGrapheme(
                 // crash.
                 log.err("grapheme append failed after capacity increase", .{});
                 return err2;
+            };
+        },
+    };
+}
+
+/// Set the graphemes of the given cell within the current cursor row.
+/// The cell must have a codepoint and no graphemes yet.
+pub fn setGraphemes(
+    self: *Screen,
+    cell: *Cell,
+    cps: []const u21,
+) PageList.IncreaseCapacityError!void {
+    defer self.cursor.page_pin.node.page().assertIntegrity();
+    self.cursor.page_pin.node.page().setGraphemes(
+        self.cursor.page_row,
+        cell,
+        cps,
+    ) catch |err| switch (err) {
+        error.GraphemeMapOutOfMemory,
+        error.GraphemeAllocOutOfMemory,
+        => {
+            // See appendGrapheme for the capacity increase and cell reload.
+            const cell_idx: usize = cell_idx: {
+                const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
+                const zero: [*]Cell = cells - self.cursor.x;
+                const target: [*]Cell = @ptrCast(cell);
+                const cell_idx = (@intFromPtr(target) - @intFromPtr(zero)) / @sizeOf(Cell);
+                break :cell_idx cell_idx;
+            };
+
+            _ = try self.increaseCapacity(
+                self.cursor.page_pin.node,
+                .grapheme_bytes,
+            );
+
+            const reloaded_cell: *Cell = switch (std.math.order(cell_idx, self.cursor.x)) {
+                .eq => self.cursor.page_cell,
+                .lt => self.cursorCellLeft(@intCast(self.cursor.x - cell_idx)),
+                .gt => self.cursorCellRight(@intCast(cell_idx - self.cursor.x)),
+            };
+
+            self.cursor.page_pin.node.page().setGraphemes(
+                self.cursor.page_row,
+                reloaded_cell,
+                cps,
+            ) catch |err2| {
+                comptime assert(@TypeOf(err2) == Page.GraphemeError);
+                // This should never happen because we just increased capacity.
+                // Log loudly but still return an error so we don't just
+                // crash.
+                log.err("grapheme set failed after capacity increase err={}", .{err2});
+                return error.OutOfMemory;
             };
         },
     };
@@ -7330,6 +7389,7 @@ test "Screen: resize more rows with populated scrollback" {
 
     // Set our cursor to be on the "4"
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7371,8 +7431,9 @@ test "Screen: resize more cols no reflow" {
     const cursor = s.cursor;
     try s.resize(.{ .cols = 10, .rows = 3 });
 
-    // Cursor should not move
-    try testing.expectEqual(cursor.x, s.cursor.x);
+    // Pending wrap becomes the next insertion position.
+    try testing.expect(!s.cursor.pending_wrap);
+    try testing.expectEqual(cursor.x + 1, s.cursor.x);
     try testing.expectEqual(cursor.y, s.cursor.y);
 
     {
@@ -7551,6 +7612,7 @@ test "Screen: resize more cols with reflow that fits full width" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7630,6 +7692,7 @@ test "Screen: resize more cols with reflow that forces more wrapping" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7672,6 +7735,7 @@ test "Screen: resize more cols with reflow that unwraps multiple times" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7720,6 +7784,7 @@ test "Screen: resize more cols with populated scrollback" {
 
     // // Set our cursor to be on the "5"
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7840,6 +7905,7 @@ test "Screen: resize more cols with reflow" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8084,8 +8150,9 @@ test "Screen: resize more rows and cols with wrapping" {
 
     try s.resize(.{ .cols = 5, .rows = 10 });
 
-    // Cursor should move due to wrapping
-    try testing.expectEqual(@as(size.CellCountInt, 3), s.cursor.x);
+    // Reflow leaves room after the last printed cell.
+    try testing.expect(!s.cursor.pending_wrap);
+    try testing.expectEqual(@as(size.CellCountInt, 4), s.cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
 
     {
@@ -8111,6 +8178,7 @@ test "Screen: resize less rows no scrollback" {
     try s.testWriteString(str);
 
     s.cursorAbsolute(0, 0);
+    s.cursor.pending_wrap = false;
     const cursor = s.cursor;
     try s.resize(.{ .cols = 5, .rows = 1 });
 
@@ -8144,6 +8212,7 @@ test "Screen: resize less rows moving cursor" {
 
     // Put our cursor on the last line
     s.cursorAbsolute(1, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8312,6 +8381,7 @@ test "Screen: resize less cols with reflow but row space" {
 
     // Put our cursor on the end
     s.cursorAbsolute(4, 0);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8477,6 +8547,7 @@ test "Screen: resize less cols with reflow previously wrapped and scrollback" {
 
     // Put our cursor on the end
     s.cursorAbsolute(s.pages.cols - 1, s.pages.rows - 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,

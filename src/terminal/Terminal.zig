@@ -1305,8 +1305,7 @@ pub fn print(self: *Terminal, c: u21) !void {
                     self.screens.active.cursorLeft(prev.left);
 
                     // If we don't have space for the wide char, we need to
-                    // insert spacers and wrap. We need special handling if the
-                    // previous cell has grapheme data.
+                    // insert spacers and wrap.
                     if (self.screens.active.cursor.x == right_limit - 1) {
                         if (!self.modes.get(.wraparound)) return;
 
@@ -1318,62 +1317,27 @@ pub fn print(self: *Terminal, c: u21) !void {
                         if (row_wrap) self.screens.active.cursor.page_row.wrap = true;
 
                         const prev_cp = prev.cell.content.codepoint.data;
-                        if (prev.cell.hasGrapheme()) {
-                            // This is like printCell but without clearing the
-                            // grapheme data from the cell, so we can move it
-                            // later.
-                            prev.cell.wide = if (row_wrap) .spacer_head else .narrow;
-                            prev.cell.content.codepoint.data = 0;
+                        // Copy the grapheme codepoints since overwriting the cell frees them.
+                        var prev_grapheme_buf: [pagepkg.grapheme_max_len]u21 = undefined;
+                        const prev_grapheme: []const u21 = prev_grapheme: {
+                            if (!prev.cell.hasGrapheme()) break :prev_grapheme &.{};
+                            const cps = self.screens.active.cursor.page_pin.grapheme(prev.cell).?;
+                            const copy = prev_grapheme_buf[0..cps.len];
+                            @memcpy(copy, cps);
+                            break :prev_grapheme copy;
+                        };
 
-                            try self.printWrap();
-                            self.printCell(prev_cp, .wide);
-
-                            const new_pin = self.screens.active.cursor.page_pin.*;
-                            const new_rac = new_pin.rowAndCell();
-
-                            transfer_graphemes: {
-                                var old_pin = self.screens.active.cursor.page_pin.up(1) orelse break :transfer_graphemes;
-                                old_pin.x = right_limit - 1;
-                                const old_rac = old_pin.rowAndCell();
-
-                                if (new_pin.node == old_pin.node) {
-                                    new_pin.node.page().moveGrapheme(old_rac.cell, new_rac.cell);
-                                    old_rac.cell.content_tag = .codepoint;
-                                    new_rac.cell.content_tag = .codepoint_grapheme;
-                                    new_rac.row.grapheme = true;
-                                } else {
-                                    const cps = old_pin.node.page().lookupGrapheme(old_rac.cell).?;
-                                    for (cps) |cp| {
-                                        // appendGrapheme can grow the cursor
-                                        // page, so read the destination from
-                                        // the cursor each time rather than
-                                        // holding a pointer across the call.
-                                        try self.screens.active.appendGrapheme(
-                                            self.screens.active.cursor.page_cell,
-                                            cp,
-                                        );
-                                    }
-                                    old_pin.node.page().clearGrapheme(old_rac.cell);
-                                }
-
-                                old_pin.node.page().updateRowGraphemeFlag(old_rac.row);
-                            }
-
-                            // Point prev.cell to our new previous cell that
-                            // we'll be appending graphemes to
-                            prev.cell = self.screens.active.cursor.page_cell;
-                        } else {
-                            self.printCell(
-                                0,
-                                if (row_wrap) .spacer_head else .narrow,
+                        self.printCell(0, if (row_wrap) .spacer_head else .narrow);
+                        try self.printWrap();
+                        self.printCell(prev_cp, .wide);
+                        if (prev_grapheme.len > 0) {
+                            try self.screens.active.setGraphemes(
+                                self.screens.active.cursor.page_cell,
+                                prev_grapheme,
                             );
-                            try self.printWrap();
-                            self.printCell(prev_cp, .wide);
-
-                            // Point prev.cell to our new previous cell that
-                            // we'll be appending graphemes to
-                            prev.cell = self.screens.active.cursor.page_cell;
                         }
+
+                        prev.cell = self.screens.active.cursor.page_cell;
                     } else {
                         prev.cell.wide = .wide;
                     }
@@ -6297,6 +6261,107 @@ test "Terminal: grapheme transfer when widening wraps to the next line" {
         } }).?;
         try testing.expectEqual(Cell.Wide.spacer_tail, list_cell.cell.wide);
     }
+}
+
+test "Terminal: grapheme transfer when widening wraps below the scroll region" {
+    var t = try init(testing.io, testing.allocator, .{ .rows = 3, .cols = 3 });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.grapheme_cluster, true);
+    t.setTopAndBottomMargin(1, 2);
+    t.setCursorPos(3, 3);
+    try t.print(0x2764); // Heart
+    try t.print(0x200D); // ZWJ
+    try t.print(0x1F44D); // Thumbs up
+
+    const base = t.screens.active.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
+    try testing.expectEqual(@as(u21, 0x2764), base.cell.codepoint());
+    try testing.expectEqualSlices(
+        u21,
+        &.{ 0x200D, 0x1F44D },
+        base.node.page().lookupGrapheme(base.cell).?,
+    );
+}
+
+test "Terminal: grapheme transfer when widening scrolls a single row" {
+    for ([_]bool{ false, true }) |alternate| {
+        for ([_]bool{ false, true }) |margins| {
+            var t = try init(testing.io, testing.allocator, .{ .rows = 1, .cols = 5 });
+            defer t.deinit(testing.allocator);
+
+            t.modes.set(.grapheme_cluster, true);
+            if (alternate) _ = try t.switchScreen(.alternate);
+
+            // Leave a grapheme on the row above, in scrollback. It must stay
+            // there untouched when the cluster wraps below it.
+            t.setCursorPos(1, 5);
+            try t.print('a');
+            try t.print(0x0301); // Combining acute accent
+            try t.index();
+
+            if (margins) {
+                t.modes.set(.enable_left_and_right_margin, true);
+                t.setLeftAndRightMargin(3, 0);
+            }
+            t.setCursorPos(1, 5);
+            try t.print(0x2764); // Heart
+            try t.print(0x200D); // ZWJ
+            try t.print(0x1F44D); // Thumbs up
+
+            const x: size.CellCountInt = if (margins) 2 else 0;
+            const base = t.screens.active.pages.getCell(.{ .active = .{ .x = x, .y = 0 } }).?;
+            try testing.expectEqual(@as(u21, 0x2764), base.cell.codepoint());
+            try testing.expectEqualSlices(
+                u21,
+                &.{ 0x200D, 0x1F44D },
+                base.node.page().lookupGrapheme(base.cell).?,
+            );
+
+            // The alternate screen has no scrollback to check.
+            if (!alternate) {
+                const history = t.screens.active.pages.getCell(.{ .screen = .{ .x = 4, .y = 0 } }).?;
+                try testing.expectEqual(@as(u21, 'a'), history.cell.codepoint());
+                try testing.expectEqualSlices(u21, &.{0x0301}, history.node.page().lookupGrapheme(history.cell).?);
+            }
+        }
+    }
+}
+
+test "Terminal: grapheme transfer when widening wraps to a page without grapheme capacity" {
+    const rows = pagepkg.std_capacity.rows;
+    const cols = pagepkg.std_capacity.cols;
+    var t = try init(testing.io, testing.allocator, .{ .rows = rows, .cols = cols });
+    defer t.deinit(testing.allocator);
+
+    t.modes.set(.grapheme_cluster, true);
+
+    // Fill the first page so the bottom row of the screen is on a second
+    // page, then compact that page so it has no grapheme capacity.
+    t.cursorDown(rows - 1);
+    for (rows..t.screens.active.pages.pages.first.?.capacity().rows + 1) |_| {
+        try t.index();
+    }
+    const pages = &t.screens.active.pages;
+    try testing.expect(pages.pages.first != pages.pages.last);
+    try testing.expect(try pages.compact(pages.pages.last.?) != null);
+    try testing.expectEqual(0, pages.pages.last.?.capacity().grapheme_bytes);
+
+    t.setCursorPos(rows - 1, cols);
+    try t.print(0x2764); // Heart
+    try t.print(0x200D); // ZWJ
+    try t.print(0x1F44D); // Thumbs up
+
+    // The re-attach had to grow the page's grapheme capacity.
+    try testing.expect(pages.pages.last.?.capacity().grapheme_bytes > 0);
+    const base = pages.getCell(.{ .active = .{ .x = 0, .y = rows - 1 } }).?;
+    try testing.expectEqual(pages.pages.last.?, base.node);
+    try testing.expectEqual(Cell.Wide.wide, base.cell.wide);
+    try testing.expectEqual(@as(u21, 0x2764), base.cell.codepoint());
+    try testing.expectEqualSlices(
+        u21,
+        &.{ 0x200D, 0x1F44D },
+        base.node.page().lookupGrapheme(base.cell).?,
+    );
 }
 
 test "Terminal: VS16 to make wide character with pending wrap" {
@@ -15776,6 +15841,20 @@ test "Terminal: resize less cols with wide char then print" {
     try t.print('😀'); // 0x1F600
 }
 
+test "Terminal: resize less cols without reflow cutting wide char tail" {
+    const alloc = testing.allocator;
+    const io_impl = testing.io;
+    var t = try init(io_impl, alloc, .{ .cols = 3, .rows = 1 });
+    defer t.deinit(alloc);
+
+    try t.print('a');
+    try t.print('一');
+    t.modes.set(.wraparound, false);
+    try t.resize(alloc, .{ .cols = 2, .rows = 1 });
+
+    try testing.expect(t.screens.active.pages.getCell(.{ .active = .{ .x = 1 } }).?.cell.isEmpty());
+}
+
 // https://github.com/mitchellh/ghostty/issues/723
 // This was found via fuzzing so its highly specific.
 test "Terminal: resize with left and right margin set" {
@@ -15962,6 +16041,66 @@ test "Terminal: resize with reflow and saved cursor pending wrap" {
         const str = try t.plainString(testing.allocator);
         defer testing.allocator.free(str);
         try testing.expectEqualStrings("1A2BX", str);
+    }
+}
+
+test "Terminal: saved cursor survives repeated widening" {
+    const alloc = testing.allocator;
+    var t = try init(testing.io, alloc, .{ .cols = 4, .rows = 5 });
+    defer t.deinit(alloc);
+
+    try t.printString("abc\nAAA|");
+    t.saveCursor();
+    try t.resize(alloc, .{ .cols = 5, .rows = 5 });
+    try t.resize(alloc, .{ .cols = 6, .rows = 5 });
+    t.restoreCursor();
+    try t.print('X');
+
+    const str = try t.plainString(alloc);
+    defer alloc.free(str);
+    try testing.expectEqualStrings("abc\nAAA|X", str);
+}
+
+test "Terminal: resize pending wrap live and saved cursors" {
+    const alloc = testing.allocator;
+    const cases = [_]struct {
+        text: []const u8,
+        cols: size.CellCountInt,
+        pending_wrap: bool,
+        expected: []const u8,
+    }{
+        // Widening leaves room after the formerly full line.
+        .{ .text = "ABCD", .cols = 6, .pending_wrap = false, .expected = "ABCDX" },
+        // Narrowing can move the last character into the middle of a row.
+        .{ .text = "ABCD", .cols = 3, .pending_wrap = false, .expected = "ABC\nDX" },
+        // Keep pending wrap when the last character still fills a row.
+        .{ .text = "ABCD", .cols = 2, .pending_wrap = true, .expected = "AB\nCD\nX" },
+        // A height-only resize also preserves pending wrap.
+        .{ .text = "ABCD", .cols = 4, .pending_wrap = true, .expected = "ABCD\nX" },
+        // Reflow can merge previously wrapped rows.
+        .{ .text = "ABCDEFGH", .cols = 6, .pending_wrap = false, .expected = "ABCDEF\nGHX" },
+        // A wide character at the old right edge must not be overwritten.
+        .{ .text = "AB界", .cols = 6, .pending_wrap = false, .expected = "AB界X" },
+        // A cursor without pending wrap must not advance an extra cell.
+        .{ .text = "ABC", .cols = 6, .pending_wrap = false, .expected = "ABCX" },
+    };
+
+    for (cases) |case| {
+        for ([_]bool{ false, true }) |restore| {
+            var t = try init(testing.io, alloc, .{ .cols = 4, .rows = 5 });
+            defer t.deinit(alloc);
+            try t.printString(case.text);
+            if (restore) t.saveCursor();
+
+            try t.resize(alloc, .{ .cols = case.cols, .rows = 6 });
+            if (restore) t.restoreCursor();
+            try testing.expectEqual(case.pending_wrap, t.screens.active.cursor.pending_wrap);
+
+            try t.print('X');
+            const str = try t.plainString(alloc);
+            defer alloc.free(str);
+            try testing.expectEqualStrings(case.expected, str);
+        }
     }
 }
 

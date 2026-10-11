@@ -4,13 +4,19 @@ on:
     branches: [main, "codex/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      compatibility:
+        description: Run only the bounded macOS 15 and Intel compatibility matrix
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: toastty-${{ github.workflow }}-${{ github.ref }}
+  group: toastty-${{ github.workflow }}-${{ github.ref }}-${{ inputs.compatibility && 'compatibility' || 'standard' }}
   cancel-in-progress: true
 jobs:
   build-and-test:
+    if: github.event_name != 'workflow_dispatch' || !inputs.compatibility
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -72,6 +78,7 @@ jobs:
           path: ~/Library/Developer/Xcode/DerivedData/Ghostty-*/Logs/Test/*.xcresult
           if-no-files-found: warn
   engine-tests:
+    if: github.event_name != 'workflow_dispatch' || !inputs.compatibility
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -93,3 +100,87 @@ jobs:
       - name: Run core and libghostty-vt tests
         if: steps.scope.outputs.engine-tests == 'true'
         run: scripts/test-engine.sh
+  compatibility-tests:
+    # Opt in on the candidate ref. Ordinary PR/push coverage stays unchanged.
+    if: github.event_name == 'workflow_dispatch' && inputs.compatibility
+    name: Compatibility (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            os-major: 15
+          - runner: macos-15-intel
+            arch: x86_64
+            os-major: 15
+          - runner: macos-26-intel
+            arch: x86_64
+            os-major: 26
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select hosted Xcode and verify native runtime
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          EXPECTED_OS_MAJOR: ${{ matrix.os-major }}
+        run: |
+          set -euo pipefail
+          # Xcode 26.3 is preinstalled on all three images. This changes only
+          # the disposable hosted runner; build.nu intentionally clears env.
+          test -d /Applications/Xcode_26.3.app
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          test "$(sw_vers -productVersion | cut -d. -f1)" = "$EXPECTED_OS_MAJOR"
+          sw_vers
+          xcodebuild -version
+      - name: Validate upstream and toolchain pins
+        id: upstream
+        run: python3 scripts/upstream.py check --verify-history --github-output "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ steps.upstream.outputs.zig-version }}
+          # Occasional compatibility runs must not add persistent multi-GB caches.
+          use-cache: false
+      - name: Install build tools on the hosted runner
+        run: brew install nushell swiftlint
+      - name: Build and run focused native compatibility tests
+        timeout-minutes: 30
+        run: |
+          scripts/test.sh \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 120 \
+            -resultBundlePath "$RUNNER_TEMP/compatibility.xcresult" \
+            -only-testing:GhosttyTests/TerminalViewContainerTests \
+            -only-testing:GhosttyTests/FullscreenTransitionGuardTests \
+            -only-testing:GhosttyTests/ProjectWindowLayoutTests \
+            -only-testing:GhosttyTests/ProjectTabStripTests \
+            -only-testing:GhosttyTests/SurfaceViewAppKitTests \
+            -only-testing:GhosttyTests/ClipboardPromptTests \
+            -only-testing:GhosttyTests/SplitTreeTests
+          xcrun xcresulttool get test-results summary \
+            --path "$RUNNER_TEMP/compatibility.xcresult" > "$RUNNER_TEMP/compatibility-summary.json"
+          python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); assert r["passedTests"] > 0 and r["failedTests"] == 0, r' \
+            "$RUNNER_TEMP/compatibility-summary.json"
+      - name: Run focused engine regressions on the native architecture
+        timeout-minutes: 20
+        run: |
+          scripts/zig-build.sh test -Demit-macos-app=false -Demit-xcframework=false \
+            -Dtest-filter=resize -Dtest-filter=grapheme \
+            -Dtest-filter='saved cursor survives' -Dtest-filter=tmux.viewer --summary all
+      - name: Preserve compatibility test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compatibility-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/compatibility.xcresult
+            ${{ runner.temp }}/compatibility-summary.json
+          retention-days: 7
+          if-no-files-found: warn

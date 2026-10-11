@@ -51,6 +51,28 @@ git diff --check
 desktop UI tests unattended. Validate changed Swift files with
 `swiftlint lint --strict <file>`. Avoid rewriting unrelated upstream files.
 
+For an approved compatibility run, manually dispatch `ci.yml` on the candidate
+branch with the boolean input `compatibility=true`. This runs only the focused
+matrix on the standard `macos-15` (ARM64), `macos-15-intel`, and `macos-26-intel`
+runners. Normal push/PR CI and a dispatch without that input keep their existing
+full test scope. Compatibility runs use a separate concurrency group, so they
+do not cancel normal CI. They do not publish Nightly: its automatic job requires
+a successful **push** run on `main`.
+
+The matrix selects preinstalled Xcode 26.3 on each disposable hosted runner and
+verifies the native architecture and OS major version. It builds the engine and
+app in order, runs the glass/fallback, accessibility observer, window/layout,
+focus/input, clipboard and split suites, and runs focused resize/grapheme/tmux
+engine regressions. Desktop UI tests remain excluded. A green matrix complements
+the full primary CI suite; it does not replace manual VoiceOver/display testing
+or verify the app's macOS 13 minimum runtime (the native unit bundle requires 15.5).
+
+Each of the three jobs is capped at 45 minutes, with at most two running at once:
+at most 135 runner-minutes per attempt, excluding queue time. Persistent Zig
+caching is disabled for these occasional runs; test artifacts expire after seven
+days. Check current GitHub runner pricing and repository visibility before
+dispatch. No compatibility jobs run automatically on push or pull requests.
+
 Manual acceptance before releases:
 
 1. Create two projects with two tabs each. Switch repeatedly; verify independent

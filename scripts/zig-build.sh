@@ -17,7 +17,9 @@ trap 'rm -f "$log"' EXIT
 fetch_failed() {
   # Package fetches fail on the dependency URL, for example
   # build.zig.zon:9:20: error: unable to connect to server: Timeout
-  grep -Eq 'build\.zig\.zon:[0-9]+:[0-9]+: error: unable to connect to server:' "$log"
+  # Git dependencies can also fail before discovery completes if the remote
+  # closes its HTTP connection. Retry that transient error, not all Git errors.
+  grep -Eq 'build\.zig\.zon:[0-9]+:[0-9]+: error: unable to (connect to server:|discover remote git server capabilities: HttpConnectionClosing)' "$log"
 }
 
 attempt=1

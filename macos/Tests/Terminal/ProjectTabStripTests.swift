@@ -78,7 +78,8 @@ struct ProjectTabStripTests {
             ])
     }
 
-    @Test func dropCompletesAfterLatePayloadLoad() async {
+    @MainActor
+    @Test func dropCompletesAfterLatePayloadLoad() async throws {
         // performDrop can arrive before begin's asynchronous publish; the
         // delegates then load the providers directly and commit on finish.
         let session = TerminalLayoutDragSession()
@@ -87,10 +88,11 @@ struct ProjectTabStripTests {
         var committed: TerminalLayoutDragPayload?
         let accepted = session.finishDrop([payload.itemProvider()]) { committed = $0 }
         #expect(accepted)
-        for _ in 0..<5 {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.main.async { continuation.resume() }
-            }
+        // Item-provider decoding runs asynchronously outside the main queue.
+        // A fixed number of queue turns does not wait for its completion.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while committed == nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
         }
         #expect(committed == payload)
         // The session ended, so its pending publish cannot revive the drag.
