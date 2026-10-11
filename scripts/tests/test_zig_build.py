@@ -65,6 +65,39 @@ class ZigBuildTests(unittest.TestCase):
             self.assertEqual(count.read_text().strip(), "1")
             self.assertNotIn("retrying", result.stderr)
 
+    def test_retries_closed_http_connection_during_git_package_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            count = Path(tmp) / "count"
+            zig = self.write_zig(tmp, f"""\
+                #!/bin/bash
+                n=0
+                [[ -f {count} ]] && n=$(cat {count})
+                n=$((n + 1))
+                echo "$n" > {count}
+                if [[ "$n" -lt 2 ]]; then
+                  echo 'zig-pkg/vaxis/build.zig.zon:8:20: error: unable to discover remote git server capabilities: HttpConnectionClosing' >&2
+                  exit 1
+                fi
+                """)
+            result = self.run_script(zig, "-Demit-macos-app=false")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
+            self.assertEqual(result.stderr.count("retrying"), 1)
+
+    def test_does_not_retry_other_git_discovery_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            count = Path(tmp) / "count"
+            zig = self.write_zig(tmp, f"""\
+                #!/bin/bash
+                echo 1 >> {count}
+                echo 'zig-pkg/vaxis/build.zig.zon:8:20: error: unable to discover remote git server capabilities: HttpForbidden' >&2
+                exit 1
+                """)
+            result = self.run_script(zig, "-Demit-macos-app=false")
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(count.read_text().strip(), "1")
+            self.assertNotIn("retrying", result.stderr)
+
     def test_does_not_retry_compile_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
             count = Path(tmp) / "count"
