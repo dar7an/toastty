@@ -189,7 +189,7 @@ private class TerminalGlassView: NSView, ObservableObject {
         var body: some View {
             model.color
                 .glassEffect(
-                    model.glass,
+                    model.glass?.official ?? .identity,
                     in: RoundedRectangle(cornerRadius: model.cornerRadius)
                 )
         }
@@ -199,7 +199,10 @@ private class TerminalGlassView: NSView, ObservableObject {
         @Published var backgroundColor: Color = .clear
         @Published var backgroundOpacity: Double = 0
         @Published var cornerRadius: CGFloat = 0
-        @Published var glass: Glass = .identity
+        // Objective-C class enumeration can realize this class even on an
+        // older OS. Storing Glass here makes its layout depend on unavailable
+        // SwiftUI metadata before any availability-guarded view is created.
+        @Published var glass: BackportGlass?
 
         /// backgroundColor applied with backgroundOpacity
         var color: Color {
@@ -242,7 +245,7 @@ private class TerminalGlassView: NSView, ObservableObject {
 
     /// Configures the glass, tint color, corner radius.
     func configure(
-        glass: Glass,
+        glass: BackportGlass,
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         cornerRadius: CGFloat?,
@@ -300,7 +303,7 @@ extension TerminalViewContainer {
         }
 
         effectView.configure(
-            glass: derivedConfig.glass.official,
+            glass: derivedConfig.glass,
             backgroundColor: derivedConfig.backgroundColor,
             backgroundOpacity: derivedConfig.backgroundOpacity,
             cornerRadius: derivedConfig.cornerRadius,

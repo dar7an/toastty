@@ -90,10 +90,18 @@ The demonstrated implementation gaps addressed here are:
 - Transparent titlebar fallback now uses the opaque window color when the
   opacity policy requires it. The deferred glass update weakly captures its
   owner so queued appearance work cannot extend a closed container's lifetime.
+- macOS 15 compatibility runs on ARM64 and Intel exposed a crash during
+  Objective-C class enumeration before XCTest could run. The glass model stored
+  `@Published Glass`, whose layout requires macOS 26 metadata even when the class
+  has an availability annotation. The model now stores the existing backport
+  enum and converts it in the guarded SwiftUI view. This avoids the
+  [known class-realization failure](https://github.com/swiftlang/swift/issues/61215)
+  without changing the configured material or its initial identity effect.
 
 Regression tests exercise native view ordering, hit testing, accessibility
 visibility, transparent/opaque/transparent transitions with unchanged config,
-project and ordinary content, live notification delivery, and observer teardown.
+project and ordinary content, live notification delivery, observer teardown,
+and Objective-C class enumeration on the running OS.
 
 ## Operational assessment
 

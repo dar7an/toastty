@@ -5,6 +5,7 @@
 //  Created by Lukas on 26.02.2026.
 //
 
+import ObjectiveC
 import SwiftUI
 import Testing
 @testable import Ghostty
@@ -59,6 +60,17 @@ class MockConfig: Ghostty.Config {
 @MainActor
 @Suite(.serialized)
 struct TerminalViewContainerTests {
+    @Test func runtimeClassDiscoverySupportsOlderMacOS() throws {
+        // XCTest and other Objective-C clients enumerate classes without
+        // constructing views. Availability annotations alone must not leave
+        // a stored Glass value that requires macOS 26 metadata at this point.
+        var count: UInt32 = 0
+        let classes = try #require(objc_copyClassList(&count))
+        defer { free(UnsafeMutableRawPointer(classes)) }
+        #expect(count > 0)
+        #expect((0..<Int(count)).contains { classes[$0] === TerminalViewContainer.self })
+    }
+
     @Test func displayAccessibilityChangesRefreshExistingControllers() async throws {
         let config = try TemporaryConfig("shell-integration = none\ncommand = /usr/bin/true")
         let app = Ghostty.App(configPath: config.temporaryFile.path)
