@@ -94,13 +94,15 @@ side effects, not an API for application blur or GPU effects.
 The real [update controller](../macos/Sources/Features/Update/UpdateController.swift)
 uses Sparkle's standard user driver. Its custom update view model and overlay
 are debug simulation UI. Nightly update eligibility depends on the bundle's
-signed-feed configuration and key checks. Other build identities use their
-configured fallback rather than inheriting Ghostty's update feed. See
+signed-feed configuration and key checks. Builds that fail eligibility do not
+start Sparkle checks or downloads; their manual update action opens Toastty's
+Releases page. That destination is hard-coded, not a configurable fallback feed. See
 [releases](releases.md) for the exact identities and installation boundaries.
 
 [Ordinary CI](../.github/workflows/ci.yml) runs the native unit suite; the
 [test wrapper](../scripts/test.sh) explicitly excludes GhosttyUITests. Engine
-coverage is change-scoped, and the compatibility matrix is manually dispatched.
+coverage is change-scoped for ordinary pull-request and push runs. The manually
+dispatched compatibility matrix runs selected engine regressions on each runner.
 A green ordinary PR does not certify every supported macOS version, an
 interactive VoiceOver session, or unattended UI automation. The UI test fixture
 also gates discovery on its expected IDE environment.
