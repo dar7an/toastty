@@ -90,6 +90,10 @@ Manual acceptance before releases:
 
 ## Repository map
 
+For component ownership, library boundaries and verification limits, see
+[runtime architecture](runtime-architecture.md).
+
+
 | Path                               | Responsibility                                      |
 | ---------------------------------- | --------------------------------------------------- |
 | `macos/Sources/Features/Terminal/` | Workspace model, sidebar, tab rail, windows         |
