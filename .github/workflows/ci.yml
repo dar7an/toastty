@@ -65,14 +65,14 @@ jobs:
           done
       - name: Preserve UI review images
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-ui-review
           path: ${{ runner.temp }}/toastty-ui-review
           if-no-files-found: warn
       - name: Preserve test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-test-results
           path: ~/Library/Developer/Xcode/DerivedData/Ghostty-*/Logs/Test/*.xcresult
@@ -176,7 +176,7 @@ jobs:
             -Dtest-filter='saved cursor survives' -Dtest-filter=tmux.viewer --summary all
       - name: Preserve compatibility test evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compatibility-${{ matrix.runner }}
           path: |
