@@ -23,8 +23,11 @@ not from a file argument. This affects how you invoke AFL++ tools:
   cat testcase | afl-showmap -o map.txt -- zig-out/bin/fuzz-stream
   ```
 
-- **`afl-cmin`**: Do **not** use `@@`. AFL++ 4.35c's Python implementation
-  required the bash workaround below. Set `AFL_CMIN_BASH` to the verified
+- **`afl-cmin`**: Do **not** use `@@`; the Python implementation can feed
+  corpus files to `afl-showmap` through stdin. AFL++ 4.35c with Python 3.14 has
+  a [known multiprocessing failure](https://github.com/AFLplusplus/AFLplusplus/issues/2648).
+  Use the bash workaround below for that affected combination, not as a blanket
+  requirement for other versions. Set `AFL_CMIN_BASH` to the verified
   executable `afl-cmin.bash` in your selected AFL++ installation; do not hardcode
   an old Homebrew Cellar version or assume another machine has it installed.
   Use `AFL_NO_FORKSRV=1` with that bash implementation:
