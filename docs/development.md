@@ -121,3 +121,54 @@ The current adopted base and Zig version are recorded in
 for weekly reports, reviewed engine upgrades, engine tests, and UI acceptance.
 Preserve the license, source headers, terminal behavior, and dependency pins;
 do not restore upstream appcast URLs or publishing workflows.
+
+## AppleScript QA
+
+After building with `macos/build.nu`, launch and activate the isolated app by
+absolute build-bundle path with osascript. Allow it to open a terminal, run
+scripts against that same absolute path, then quit that built instance. Never
+target the app by name: that can control the pinned installed build instead.
+Keep the capability and command-validation checks described in
+[macOS agent guidance](../macos/AGENTS.md).
+
+## Engine examples
+
+Each `example/` project has its own build metadata. Copy the closest template,
+change the executable/package name and fingerprint, and align its minimum Zig
+version with the other examples. Update its README. Keep Doxygen snippet markers
+around compilable example code and reference those snippets from public headers
+instead of copying implementations into documentation. The current Toastty fork
+does not auto-discover/build every example in CI; record explicit validation of
+the changed standalone projects.
+
+## Engine benchmarks
+
+See [the scoped benchmark guide](../src/benchmark/AGENTS.md). Generate corpora
+before timing; never pipe generation into timed consumption. Use the same corpus,
+seed, CLI flags and terminal dimensions for every revision. Build ReleaseFast,
+warm up, measure multiple runs, compare medians and never time competing
+benchmarks concurrently on the same machine.
+
+Build each revision in its own checkout and retain clearly named binaries and
+input files outside tracked source; compare those commands with hyperfine.
+Use `ghostty-bench +page-compression` modes compress/decompress/store/report for
+codec/ratio work, and +scrollback-compression for PageList transitions. Real raw
+page backing memory (400 KiB pages on ReleaseFast targets) is more representative
+than text-only or random input. A standalone std-only harness is useful for fast
+iteration, but rerun the final result with the representative corpus and verify
+round-trips. Small timing differences need repeated confirmation.
+
+### Compression observations to recheck
+
+The following are prior measurements, not universal optimization requirements;
+re-measure on the selected compiler, machine and page corpus:
+
+- Real page data decodes as millions of tiny operations (in LZ4: mostly
+  zero literals plus a 4-18 byte match). Per-item overhead dominates, so
+  branch-light fast paths with blind fixed-size copies win.
+- Wide copies are the only SIMD that pays here. Vectorized compares and
+  other wide-stride tricks measured as net losses because matches are
+  short; prefer the simple word loop unless a measurement on page corpora
+  says otherwise.
+- `@memcpy` beats stride loops only for long copies (roughly 64 bytes and
+  up); call overhead loses below that.
