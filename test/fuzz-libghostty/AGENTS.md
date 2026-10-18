@@ -31,7 +31,7 @@ not from a file argument. This affects how you invoke AFL++ tools:
 
   ```sh
   AFL_NO_FORKSRV=1 "$AFL_CMIN_BASH" \
-    -i afl-out/fuzz-stream/default/queue -o corpus/stream-cmin \
+    -i afl-out/stream/default/queue -o corpus/stream-cmin \
     -- zig-out/bin/fuzz-stream
   ```
 
