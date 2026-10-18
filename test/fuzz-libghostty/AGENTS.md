@@ -1,6 +1,6 @@
 # AFL++ Fuzzer for Libghostty
 
-- Build all fuzzer with `zig build`
+- Run these commands from `test/fuzz-libghostty/`. Build all fuzzers with `zig build`
 - The list of available fuzzers is in `build.zig` (search for `fuzzers`).
 - Run a specific fuzzer with `zig build run-<name>` (e.g. `zig build run-parser`)
 - Corpus directories follow the naming convention `corpus/<fuzzer>-<variant>`
@@ -23,12 +23,18 @@ not from a file argument. This affects how you invoke AFL++ tools:
   cat testcase | afl-showmap -o map.txt -- zig-out/bin/fuzz-stream
   ```
 
-- **`afl-cmin`**: Do **not** use `@@`. Requires `AFL_NO_FORKSRV=1` with
-  the bash version due to a bug in the Python `afl-cmin` (AFL++ 4.35c):
+- **`afl-cmin`**: Do **not** use `@@`; the Python implementation can feed
+  corpus files to `afl-showmap` through stdin. AFL++ 4.35c with Python 3.14 has
+  a [known multiprocessing failure](https://github.com/AFLplusplus/AFLplusplus/issues/2648).
+  Use the bash workaround below for that affected combination, not as a blanket
+  requirement for other versions. Set `AFL_CMIN_BASH` to the verified
+  executable `afl-cmin.bash` in your selected AFL++ installation; do not hardcode
+  an old Homebrew Cellar version or assume another machine has it installed.
+  Use `AFL_NO_FORKSRV=1` with that bash implementation:
 
   ```sh
-  AFL_NO_FORKSRV=1 /opt/homebrew/Cellar/afl++/4.35c/libexec/afl-cmin.bash \
-    -i afl-out/fuzz-stream/default/queue -o corpus/stream-cmin \
+  AFL_NO_FORKSRV=1 "$AFL_CMIN_BASH" \
+    -i afl-out/stream/default/queue -o corpus/stream-cmin \
     -- zig-out/bin/fuzz-stream
   ```
 

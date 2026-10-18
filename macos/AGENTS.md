@@ -1,34 +1,17 @@
-# macOS Toastty Application
+# macOS Toastty application
 
-- Use `swiftlint` for formatting and linting Swift code.
-- If code outside of `macos/` directory is modified, use
-  `zig build -Demit-macos-app=false` before building the macOS app to update
-  the underlying Ghostty library.
-- Use `macos/build.nu` to build the macOS app, do not use `zig build`
-  (except to build the underlying library as mentioned above).
-  - Build: `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
-  - Output: `macos/build/<configuration>/Toastty.app` (e.g. `macos/build/Debug/Toastty.app`)
-- Run unit tests directly with `macos/build.nu --action test`
+- Use SwiftLint on changed Swift code. If engine code outside `macos/` changed,
+  build the library first with `zig build -Demit-macos-app=false`.
+- Build the app from the repository root with `macos/build.nu`, not the generic
+  Zig app build. It accepts `--scheme Ghostty`, `--configuration Debug` and
+  `--action build`; output is `macos/build/<configuration>/Toastty.app`.
+  Run native unit tests with `macos/build.nu --action test` (UI tests excluded).
+- Preserve the root guide's pinned-app and isolated-bundle-ID boundaries.
 
-## AppleScript
+## Code Review Rules
 
-- The AppleScript scripting definition is in `macos/Ghostty.sdef`.
-- Guard AppleScript entry points and object accessors with the
-  `macos-applescript` configuration (use `NSApp.isAppleScriptEnabled`
-  and `NSApp.validateScript(command:)` where applicable).
-- In `macos/Ghostty.sdef`, keep top-level definitions in this order:
-  1. Classes
-  2. Records
-  3. Enums
-  4. Commands
-- Test AppleScript support:
-  (1) Build with `macos/build.nu`
-  (2) Launch and activate the app via osascript using the absolute path
-      to the built app bundle:
-      `osascript -e 'tell application "<absolute path to build/Debug/Toastty.app>" to activate'`
-  (3) Wait a few seconds for the app to fully launch and open a terminal.
-  (4) Run test scripts with `osascript`, always targeting the app by
-      its absolute path (not by name) to avoid calling the wrong
-      application.
-  (5) When done, quit via:
-      `osascript -e 'tell application "<absolute path to build/Debug/Toastty.app>" to quit'`
+- Gate AppleScript entry points/object accessors on `macos-applescript`, using
+  `NSApp.isAppleScriptEnabled` and `NSApp.validateScript(command:)` as applicable.
+- `macos/Ghostty.sdef` owns scripting definitions. Keep class/record/enum/command
+  ordering and validate through the isolated built app, never a name-resolved
+  installed instance. See [AppleScript QA](../docs/development.md#applescript-qa).

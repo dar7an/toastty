@@ -44,36 +44,16 @@ When making tradeoffs, in order:
   encoded sizes (or a sequence-count fingerprint) on the same corpus
   before and after. Ratio drift is a functional change, not noise.
 
-## Benchmarking
+## Benchmark evidence
 
-- Use `ghostty-bench +page-compression` (see `src/benchmark/AGENTS.md`
-  for the general workflow). Modes: `compress`, `decompress`, `store`,
-  and `report` for ratio.
-- Build: `zig build -Demit-bench -Doptimize=ReleaseFast -Demit-macos-app=false`
-- The most representative corpus is a raw dump of real page backing
-  memory, chunked at the page size (400 KiB on ReleaseFast targets).
-  Supplement with a text corpus and random bytes for worst cases, but
-  weigh page corpora highest per the priorities above. Keep corpora
-  outside the repository and reuse identical files across comparisons.
-- `ghostty-bench +scrollback-compression` measures the PageList
-  transitions around the codec rather than the codec itself.
-- For fast iteration, keep codecs dependent only on `std` so a standalone
-  harness can build them directly with `zig build-exe -O ReleaseFast` and
-  time the codec in-process (report min-of-N, verify round-trips).
-- Measure one change at a time and re-measure the final state; run-to-run
-  noise is a few percent, so re-run before believing small deltas.
-
-## Performance Notes
-
-- Real page data decodes as millions of tiny operations (in LZ4: mostly
-  zero literals plus a 4-18 byte match). Per-item overhead dominates, so
-  branch-light fast paths with blind fixed-size copies win.
-- Wide copies are the only SIMD that pays here. Vectorized compares and
-  other wide-stride tricks measured as net losses because matches are
-  short; prefer the simple word loop unless a measurement on page corpora
-  says otherwise.
-- `@memcpy` beats stride loops only for long copies (roughly 64 bytes and
-  up); call overhead loses below that.
+Use `ghostty-bench +page-compression` for codec work and
+`ghostty-bench +scrollback-compression` for PageList transitions. Prefer raw real
+page backing-memory corpora, with text/random bytes as supplementary cases.
+Follow [the benchmark guide](../../benchmark/AGENTS.md) and
+[comparison procedure](../../../docs/development.md#engine-benchmarks): build
+ReleaseFast, reuse identical corpora/dimensions, measure serially with repeated
+runs, and verify round-trips. Machine-dependent microbenchmark results are
+evidence to recheck, not unconditional coding rules.
 
 ## LZ4 Specific
 

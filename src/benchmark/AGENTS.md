@@ -37,12 +37,6 @@ The benchmark tools are split into two roles:
   otherwise the debug build will be very slow and not representative of real
   performance.
 
-## Comparing Branches
-
-- When comparing branches, switch to that branch, build the binary, then
-  rename it e.g. `zig-out/bin/ghostty-bench` to `zig-out/bin/ghostty-bench-branch1`.
-  Replace branch1 with something better.
-- Then switch to the other branch, build it, and rename it to
-  `zig-out/bin/ghostty-bench-branch2`. Replace branch2 with something better.
-- Then run all the benchmarks with `hyperfine` comparing the N binaries
-  we want to.
+Use isolated checkouts/binaries for revision comparisons; do not switch a shared
+working tree out from under another task. See [benchmark evidence](../../docs/development.md#engine-benchmarks)
+for the comparison recipe.
